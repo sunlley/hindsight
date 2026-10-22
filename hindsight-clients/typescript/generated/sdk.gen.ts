@@ -107,9 +107,14 @@ import type {
   GetAgentStatsData,
   GetAgentStatsErrors,
   GetAgentStatsResponses,
+  GetApiAuthSettingsData,
+  GetApiAuthSettingsErrors,
+  GetApiAuthSettingsResponses,
   GetAuditLogData,
   GetAuditLogErrors,
   GetAuditLogResponses,
+  GetAuthStatusData,
+  GetAuthStatusResponses,
   GetBankAttachmentData,
   GetBankAttachmentErrors,
   GetBankAttachmentResponses,
@@ -139,6 +144,9 @@ import type {
   GetEntityGraphErrors,
   GetEntityGraphResponses,
   GetEntityResponses,
+  GetGlobalLlmSettingsData,
+  GetGlobalLlmSettingsErrors,
+  GetGlobalLlmSettingsResponses,
   GetGraphData,
   GetGraphErrors,
   GetGraphResponses,
@@ -170,6 +178,9 @@ import type {
   GetOperationStatusResponses,
   GetReadinessData,
   GetReadinessResponses,
+  GetSessionData,
+  GetSessionErrors,
+  GetSessionResponses,
   GetVersionData,
   GetVersionResponses,
   HealthEndpointHealthGetData,
@@ -204,6 +215,9 @@ import type {
   ListEntitiesData,
   ListEntitiesErrors,
   ListEntitiesResponses,
+  ListGlobalLlmModelsData,
+  ListGlobalLlmModelsErrors,
+  ListGlobalLlmModelsResponses,
   ListLlmRequestsData,
   ListLlmRequestsErrors,
   ListLlmRequestsResponses,
@@ -231,6 +245,9 @@ import type {
   LlmRequestStatsData,
   LlmRequestStatsErrors,
   LlmRequestStatsResponses,
+  LoginData,
+  LoginErrors,
+  LoginResponses,
   MetricsEndpointMetricsGetData,
   MetricsEndpointMetricsGetResponses,
   PreviewConsolidationStrategiesData,
@@ -254,12 +271,18 @@ import type {
   RegenerateEntityObservationsData,
   RegenerateEntityObservationsErrors,
   RegenerateEntityObservationsResponses,
+  RemovePageLoginAccountData,
+  RemovePageLoginAccountErrors,
+  RemovePageLoginAccountResponses,
   ReprocessDocumentData,
   ReprocessDocumentErrors,
   ReprocessDocumentResponses,
   ResetBankConfigData,
   ResetBankConfigErrors,
   ResetBankConfigResponses,
+  RestartServerData,
+  RestartServerErrors,
+  RestartServerResponses,
   RetainMemoriesData,
   RetainMemoriesErrors,
   RetainMemoriesResponses,
@@ -272,12 +295,21 @@ import type {
   SetBankAliasPrimaryData,
   SetBankAliasPrimaryErrors,
   SetBankAliasPrimaryResponses,
+  SetPageLoginAccountData,
+  SetPageLoginAccountErrors,
+  SetPageLoginAccountResponses,
   TestBankLlmData,
   TestBankLlmErrors,
   TestBankLlmResponses,
+  TestGlobalLlmSettingsData,
+  TestGlobalLlmSettingsErrors,
+  TestGlobalLlmSettingsResponses,
   TriggerConsolidationData,
   TriggerConsolidationErrors,
   TriggerConsolidationResponses,
+  UpdateApiAuthSettingsData,
+  UpdateApiAuthSettingsErrors,
+  UpdateApiAuthSettingsResponses,
   UpdateBankConfigData,
   UpdateBankConfigErrors,
   UpdateBankConfigResponses,
@@ -293,6 +325,9 @@ import type {
   UpdateDocumentData,
   UpdateDocumentErrors,
   UpdateDocumentResponses,
+  UpdateGlobalLlmSettingsData,
+  UpdateGlobalLlmSettingsErrors,
+  UpdateGlobalLlmSettingsResponses,
   UpdateKnowledgeNodeData,
   UpdateKnowledgeNodeErrors,
   UpdateKnowledgeNodeResponses,
@@ -496,7 +531,10 @@ export const getObservationHistory = <ThrowOnError extends boolean = false>(
     GetObservationHistoryResponses,
     GetObservationHistoryErrors,
     ThrowOnError
-  >({ url: "/v1/default/banks/{bank_id}/memories/{memory_id}/history", ...options });
+  >({
+    url: "/v1/default/banks/{bank_id}/memories/{memory_id}/history",
+    ...options,
+  });
 
 /**
  * Recall memory
@@ -573,6 +611,209 @@ export const getAgentStats = <ThrowOnError extends boolean = false>(
   });
 
 /**
+ * Get API authorization settings
+ *
+ * Whether callers must send an API key. Never returns the key. With a tenant extension configured, authentication belongs to the extension and `managed_by_extension` is true. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.
+ */
+export const getApiAuthSettings = <ThrowOnError extends boolean = false>(
+  options?: Options<GetApiAuthSettingsData, ThrowOnError>
+) =>
+  (options?.client ?? client).get<
+    GetApiAuthSettingsResponses,
+    GetApiAuthSettingsErrors,
+    ThrowOnError
+  >({ url: "/v1/default/settings/auth", ...options });
+
+/**
+ * Save API authorization settings
+ *
+ * Turn API key authorization on or off, and set the key. Applies at once to every endpoint and the MCP server; callers must send the key as a Bearer token from then on. The key is stored in the server's settings file and never returned. Refused (409) when a tenant extension handles authentication. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.
+ */
+export const updateApiAuthSettings = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateApiAuthSettingsData, ThrowOnError>
+) =>
+  (options.client ?? client).put<
+    UpdateApiAuthSettingsResponses,
+    UpdateApiAuthSettingsErrors,
+    ThrowOnError
+  >({
+    url: "/v1/default/settings/auth",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Turn off the control plane page's login
+ *
+ * Remove the account, so the page needs no login, and end every signed-in session. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.
+ */
+export const removePageLoginAccount = <ThrowOnError extends boolean = false>(
+  options?: Options<RemovePageLoginAccountData, ThrowOnError>
+) =>
+  (options?.client ?? client).delete<
+    RemovePageLoginAccountResponses,
+    RemovePageLoginAccountErrors,
+    ThrowOnError
+  >({ url: "/v1/default/settings/auth/admin", ...options });
+
+/**
+ * Set the control plane page's login account
+ *
+ * Create or replace the one account the control plane page asks for. The password is stored hashed; changing the account ends every signed-in session. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.
+ */
+export const setPageLoginAccount = <ThrowOnError extends boolean = false>(
+  options: Options<SetPageLoginAccountData, ThrowOnError>
+) =>
+  (options.client ?? client).put<
+    SetPageLoginAccountResponses,
+    SetPageLoginAccountErrors,
+    ThrowOnError
+  >({
+    url: "/v1/default/settings/auth/admin",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Whether the control plane page needs a login
+ *
+ * Public. Tells the control plane whether to ask for a username and password.
+ */
+export const getAuthStatus = <ThrowOnError extends boolean = false>(
+  options?: Options<GetAuthStatusData, ThrowOnError>
+) =>
+  (options?.client ?? client).get<GetAuthStatusResponses, unknown, ThrowOnError>({
+    url: "/v1/default/auth/status",
+    ...options,
+  });
+
+/**
+ * Sign in to the control plane page
+ *
+ * Public. Checks the admin account's username and password and returns a session token, plus the API key for the control plane to use on this user's behalf. After 5 failed attempts from one caller within 5 minutes, further attempts get 429 until the oldest failure ages out.
+ */
+export const login = <ThrowOnError extends boolean = false>(
+  options: Options<LoginData, ThrowOnError>
+) =>
+  (options.client ?? client).post<LoginResponses, LoginErrors, ThrowOnError>({
+    url: "/v1/default/auth/login",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Check a control plane session token
+ *
+ * Public. Send the session token as a Bearer token; 200 with the username if it is valid.
+ */
+export const getSession = <ThrowOnError extends boolean = false>(
+  options?: Options<GetSessionData, ThrowOnError>
+) =>
+  (options?.client ?? client).get<GetSessionResponses, GetSessionErrors, ThrowOnError>({
+    url: "/v1/default/auth/session",
+    ...options,
+  });
+
+/**
+ * Get global LLM settings
+ *
+ * Returns the LLM connection (provider, model, base URL) the server is running, and what it will use after the next restart. Never returns the API key, only whether one is set. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.
+ */
+export const getGlobalLlmSettings = <ThrowOnError extends boolean = false>(
+  options?: Options<GetGlobalLlmSettingsData, ThrowOnError>
+) =>
+  (options?.client ?? client).get<
+    GetGlobalLlmSettingsResponses,
+    GetGlobalLlmSettingsErrors,
+    ThrowOnError
+  >({ url: "/v1/default/settings/llm", ...options });
+
+/**
+ * Save global LLM settings
+ *
+ * Save the global LLM connection: provider (API compatibility type), model, base URL and API key, and apply it at once: the model is called once with the new connection first, and if that fails nothing is saved or changed (409, with the failure status). The key is stored in the server's settings file and never returned. With more than one worker the change is saved but only applies after a restart (`restart_required`). Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.
+ */
+export const updateGlobalLlmSettings = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateGlobalLlmSettingsData, ThrowOnError>
+) =>
+  (options.client ?? client).put<
+    UpdateGlobalLlmSettingsResponses,
+    UpdateGlobalLlmSettingsErrors,
+    ThrowOnError
+  >({
+    url: "/v1/default/settings/llm",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * List the models of a global LLM connection
+ *
+ * Ask the endpoint for its model list, using the given connection (same body as the save endpoint, nothing is saved; the model field is ignored). Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.
+ */
+export const listGlobalLlmModels = <ThrowOnError extends boolean = false>(
+  options: Options<ListGlobalLlmModelsData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    ListGlobalLlmModelsResponses,
+    ListGlobalLlmModelsErrors,
+    ThrowOnError
+  >({
+    url: "/v1/default/settings/llm/models",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
+ * Restart the server
+ *
+ * Shut the server down gracefully so that saved settings take effect. The server does NOT start itself again: something must restart the process (Docker `--restart`, systemd, Kubernetes, or a supervisor loop), otherwise it stays down. Not supported with more than one worker. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.
+ */
+export const restartServer = <ThrowOnError extends boolean = false>(
+  options?: Options<RestartServerData, ThrowOnError>
+) =>
+  (options?.client ?? client).post<RestartServerResponses, RestartServerErrors, ThrowOnError>({
+    url: "/v1/default/settings/restart",
+    ...options,
+  });
+
+/**
+ * Test a global LLM connection
+ *
+ * Make one minimal call with the given connection (same body as the save endpoint, nothing is saved) to check the model is usable. A real provider call, so run it deliberately. Returns status only. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.
+ */
+export const testGlobalLlmSettings = <ThrowOnError extends boolean = false>(
+  options: Options<TestGlobalLlmSettingsData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    TestGlobalLlmSettingsResponses,
+    TestGlobalLlmSettingsErrors,
+    ThrowOnError
+  >({
+    url: "/v1/default/settings/llm/test",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+/**
  * Test the bank's LLM connectivity
  *
  * Probe the LLMs this bank would use for retain / consolidation / reflect with one minimal call each (configs shared across operations are probed once), so you can discover 'not configured / unreachable' instead of a silent stall. Deliberate action (makes a real provider call); not for polling. Returns status only — never the provider, model, endpoint, API key, or raw error. Disable with HINDSIGHT_API_ENABLE_BANK_LLM_HEALTH=false.
@@ -597,7 +838,10 @@ export const getMemoriesTimeseries = <ThrowOnError extends boolean = false>(
     GetMemoriesTimeseriesResponses,
     GetMemoriesTimeseriesErrors,
     ThrowOnError
-  >({ url: "/v1/default/banks/{bank_id}/stats/memories-timeseries", ...options });
+  >({
+    url: "/v1/default/banks/{bank_id}/stats/memories-timeseries",
+    ...options,
+  });
 
 /**
  * List entities
@@ -652,7 +896,10 @@ export const regenerateEntityObservations = <ThrowOnError extends boolean = fals
     RegenerateEntityObservationsResponses,
     RegenerateEntityObservationsErrors,
     ThrowOnError
-  >({ url: "/v1/default/banks/{bank_id}/entities/{entity_id}/regenerate", ...options });
+  >({
+    url: "/v1/default/banks/{bank_id}/entities/{entity_id}/regenerate",
+    ...options,
+  });
 
 /**
  * List mental models
@@ -700,7 +947,10 @@ export const deleteMentalModel = <ThrowOnError extends boolean = false>(
     DeleteMentalModelResponses,
     DeleteMentalModelErrors,
     ThrowOnError
-  >({ url: "/v1/default/banks/{bank_id}/mental-models/{mental_model_id}", ...options });
+  >({
+    url: "/v1/default/banks/{bank_id}/mental-models/{mental_model_id}",
+    ...options,
+  });
 
 /**
  * Get mental model
@@ -748,7 +998,10 @@ export const getMentalModelHistory = <ThrowOnError extends boolean = false>(
     GetMentalModelHistoryResponses,
     GetMentalModelHistoryErrors,
     ThrowOnError
-  >({ url: "/v1/default/banks/{bank_id}/mental-models/{mental_model_id}/history", ...options });
+  >({
+    url: "/v1/default/banks/{bank_id}/mental-models/{mental_model_id}/history",
+    ...options,
+  });
 
 /**
  * Refresh mental model
@@ -914,7 +1167,10 @@ export const deleteKnowledgeNode = <ThrowOnError extends boolean = false>(
     DeleteKnowledgeNodeResponses,
     DeleteKnowledgeNodeErrors,
     ThrowOnError
-  >({ url: "/v1/default/banks/{bank_id}/knowledge-base/nodes/{node_id}", ...options });
+  >({
+    url: "/v1/default/banks/{bank_id}/knowledge-base/nodes/{node_id}",
+    ...options,
+  });
 
 /**
  * Rename/move a knowledge-base node or update a page's options
@@ -1035,7 +1291,10 @@ export const listDocumentChunks = <ThrowOnError extends boolean = false>(
     ListDocumentChunksResponses,
     ListDocumentChunksErrors,
     ThrowOnError
-  >({ url: "/v1/default/banks/{bank_id}/documents/{document_id}/chunks", ...options });
+  >({
+    url: "/v1/default/banks/{bank_id}/documents/{document_id}/chunks",
+    ...options,
+  });
 
 /**
  * Get document change history
@@ -1051,7 +1310,10 @@ export const getDocumentHistory = <ThrowOnError extends boolean = false>(
     GetDocumentHistoryResponses,
     GetDocumentHistoryErrors,
     ThrowOnError
-  >({ url: "/v1/default/banks/{bank_id}/documents/{document_id}/history", ...options });
+  >({
+    url: "/v1/default/banks/{bank_id}/documents/{document_id}/history",
+    ...options,
+  });
 
 /**
  * Reprocess document
@@ -1065,7 +1327,10 @@ export const reprocessDocument = <ThrowOnError extends boolean = false>(
     ReprocessDocumentResponses,
     ReprocessDocumentErrors,
     ThrowOnError
-  >({ url: "/v1/default/banks/{bank_id}/documents/{document_id}/reprocess", ...options });
+  >({
+    url: "/v1/default/banks/{bank_id}/documents/{document_id}/reprocess",
+    ...options,
+  });
 
 /**
  * Delete a document
@@ -1191,7 +1456,10 @@ export const getOperationStatus = <ThrowOnError extends boolean = false>(
     GetOperationStatusResponses,
     GetOperationStatusErrors,
     ThrowOnError
-  >({ url: "/v1/default/banks/{bank_id}/operations/{operation_id}", ...options });
+  >({
+    url: "/v1/default/banks/{bank_id}/operations/{operation_id}",
+    ...options,
+  });
 
 /**
  * Retry a failed async operation
@@ -1555,7 +1823,10 @@ export const getBankAttachment = <ThrowOnError extends boolean = false>(
   options: Options<GetBankAttachmentData, ThrowOnError>
 ) =>
   (options.client ?? client).get<GetBankAttachmentResponses, GetBankAttachmentErrors, ThrowOnError>(
-    { url: "/v1/default/banks/{bank_id}/attachments/{attachment_id}", ...options }
+    {
+      url: "/v1/default/banks/{bank_id}/attachments/{attachment_id}",
+      ...options,
+    }
   );
 
 /**
@@ -1659,7 +1930,10 @@ export const clearMemoryObservations = <ThrowOnError extends boolean = false>(
     ClearMemoryObservationsResponses,
     ClearMemoryObservationsErrors,
     ThrowOnError
-  >({ url: "/v1/default/banks/{bank_id}/memories/{memory_id}/observations", ...options });
+  >({
+    url: "/v1/default/banks/{bank_id}/memories/{memory_id}/observations",
+    ...options,
+  });
 
 /**
  * Reset bank configuration
@@ -1799,7 +2073,10 @@ export const listWebhookDeliveries = <ThrowOnError extends boolean = false>(
     ListWebhookDeliveriesResponses,
     ListWebhookDeliveriesErrors,
     ThrowOnError
-  >({ url: "/v1/default/banks/{bank_id}/webhooks/{webhook_id}/deliveries", ...options });
+  >({
+    url: "/v1/default/banks/{bank_id}/webhooks/{webhook_id}/deliveries",
+    ...options,
+  });
 
 /**
  * Clear memory bank memories

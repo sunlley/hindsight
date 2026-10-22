@@ -48,6 +48,7 @@ DEFAULT_USER_AGENT = f"hindsight-client-python/{_CLIENT_VERSION}"
 ContentBlock = dict[str, Any]
 from hindsight_client_api.api import (
     audit_api,
+    auth_api,
     bank_transfer_api,
     banks_api,
     directives_api,
@@ -60,6 +61,7 @@ from hindsight_client_api.api import (
     mental_models_api,
     monitoring_api,
     operations_api,
+    settings_api,
     webhooks_api,
 )
 from hindsight_client_api.models import (
@@ -318,6 +320,8 @@ class Hindsight:
         self._audit_api = audit_api.AuditApi(self._api_client)
         self._document_transfer_api = document_transfer_api.DocumentTransferApi(self._api_client)
         self._bank_transfer_api = bank_transfer_api.BankTransferApi(self._api_client)
+        self._settings_api = settings_api.SettingsApi(self._api_client)
+        self._auth_api = auth_api.AuthApi(self._api_client)
 
     # -- Retain suspension ------------------------------------------------------
 
@@ -417,6 +421,16 @@ class Hindsight:
     def audit(self) -> audit_api.AuditApi:
         """Low-level Audit API — list a bank's audit log, get one entry with its bodies."""
         return self._audit_api
+
+    @property
+    def settings(self) -> settings_api.SettingsApi:
+        """Low-level Settings API — global LLM connection, API key, page login account (server must enable it)."""
+        return self._settings_api
+
+    @property
+    def auth(self) -> auth_api.AuthApi:
+        """Low-level Auth API — the control plane page's sign-in: status, login, session check."""
+        return self._auth_api
 
     def __enter__(self):
         """Context manager entry."""

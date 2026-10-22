@@ -2,6 +2,7 @@
 
 # import apis into api package
 from hindsight_client_api.api.audit_api import AuditApi
+from hindsight_client_api.api.auth_api import AuthApi
 from hindsight_client_api.api.bank_templates_api import BankTemplatesApi
 from hindsight_client_api.api.bank_transfer_api import BankTransferApi
 from hindsight_client_api.api.banks_api import BanksApi
@@ -16,5 +17,6 @@ from hindsight_client_api.api.memory_api import MemoryApi
 from hindsight_client_api.api.mental_models_api import MentalModelsApi
 from hindsight_client_api.api.monitoring_api import MonitoringApi
 from hindsight_client_api.api.operations_api import OperationsApi
+from hindsight_client_api.api.settings_api import SettingsApi
 from hindsight_client_api.api.webhooks_api import WebhooksApi
 

@@ -832,6 +832,402 @@ paths:
       summary: Get statistics for memory bank
       tags:
       - Banks
+  /v1/default/settings/auth:
+    get:
+      description: "Whether callers must send an API key. Never returns the key. With\
+        \ a tenant extension configured, authentication belongs to the extension and\
+        \ `managed_by_extension` is true. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true."
+      operationId: get_api_auth_settings
+      parameters:
+      - explode: false
+        in: header
+        name: authorization
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiAuthSettingsResponse'
+          description: Successful Response
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Get API authorization settings
+      tags:
+      - Settings
+    put:
+      description: "Turn API key authorization on or off, and set the key. Applies\
+        \ at once to every endpoint and the MCP server; callers must send the key\
+        \ as a Bearer token from then on. The key is stored in the server's settings\
+        \ file and never returned. Refused (409) when a tenant extension handles authentication.\
+        \ Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true."
+      operationId: update_api_auth_settings
+      parameters:
+      - explode: false
+        in: header
+        name: authorization
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiAuthSettingsUpdate'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiAuthSettingsResponse'
+          description: Successful Response
+        "409":
+          description: A tenant extension handles authentication
+        "422":
+          description: Authorization was turned on with no key to require
+      summary: Save API authorization settings
+      tags:
+      - Settings
+  /v1/default/settings/auth/admin:
+    delete:
+      description: "Remove the account, so the page needs no login, and end every\
+        \ signed-in session. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true."
+      operationId: remove_page_login_account
+      parameters:
+      - explode: false
+        in: header
+        name: authorization
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiAuthSettingsResponse'
+          description: Successful Response
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Turn off the control plane page's login
+      tags:
+      - Settings
+    put:
+      description: Create or replace the one account the control plane page asks for.
+        The password is stored hashed; changing the account ends every signed-in session.
+        Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.
+      operationId: set_page_login_account
+      parameters:
+      - explode: false
+        in: header
+        name: authorization
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PageLoginUpdate'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiAuthSettingsResponse'
+          description: Successful Response
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Set the control plane page's login account
+      tags:
+      - Settings
+  /v1/default/auth/status:
+    get:
+      description: Public. Tells the control plane whether to ask for a username and
+        password.
+      operationId: get_auth_status
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthStatusResponse'
+          description: Successful Response
+      summary: Whether the control plane page needs a login
+      tags:
+      - Auth
+  /v1/default/auth/login:
+    post:
+      description: "Public. Checks the admin account's username and password and returns\
+        \ a session token, plus the API key for the control plane to use on this user's\
+        \ behalf. After 5 failed attempts from one caller within 5 minutes, further\
+        \ attempts get 429 until the oldest failure ages out."
+      operationId: login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+          description: Successful Response
+        "401":
+          description: Wrong username or password
+        "429":
+          description: Too many failures
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Sign in to the control plane page
+      tags:
+      - Auth
+  /v1/default/auth/session:
+    get:
+      description: Public. Send the session token as a Bearer token; 200 with the
+        username if it is valid.
+      operationId: get_session
+      parameters:
+      - explode: false
+        in: header
+        name: authorization
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+          description: Successful Response
+        "401":
+          description: No valid session
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Check a control plane session token
+      tags:
+      - Auth
+  /v1/default/settings/llm:
+    get:
+      description: "Returns the LLM connection (provider, model, base URL) the server\
+        \ is running, and what it will use after the next restart. Never returns the\
+        \ API key, only whether one is set. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true."
+      operationId: get_global_llm_settings
+      parameters:
+      - explode: false
+        in: header
+        name: authorization
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalLLMSettingsResponse'
+          description: Successful Response
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Get global LLM settings
+      tags:
+      - Settings
+    put:
+      description: "Save the global LLM connection: provider (API compatibility type),\
+        \ model, base URL and API key, and apply it at once: the model is called once\
+        \ with the new connection first, and if that fails nothing is saved or changed\
+        \ (409, with the failure status). The key is stored in the server's settings\
+        \ file and never returned. With more than one worker the change is saved but\
+        \ only applies after a restart (`restart_required`). Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true."
+      operationId: update_global_llm_settings
+      parameters:
+      - explode: false
+        in: header
+        name: authorization
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GlobalLLMSettingsUpdate'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalLLMSettingsResponse'
+          description: Successful Response
+        "409":
+          description: The model could not be reached with the new settings; nothing
+            was changed
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Save global LLM settings
+      tags:
+      - Settings
+  /v1/default/settings/llm/models:
+    post:
+      description: "Ask the endpoint for its model list, using the given connection\
+        \ (same body as the save endpoint, nothing is saved; the model field is ignored).\
+        \ Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true."
+      operationId: list_global_llm_models
+      parameters:
+      - explode: false
+        in: header
+        name: authorization
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GlobalLLMSettingsUpdate'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalLLMModelsResponse'
+          description: Successful Response
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: List the models of a global LLM connection
+      tags:
+      - Settings
+  /v1/default/settings/restart:
+    post:
+      description: "Shut the server down gracefully so that saved settings take effect.\
+        \ The server does NOT start itself again: something must restart the process\
+        \ (Docker `--restart`, systemd, Kubernetes, or a supervisor loop), otherwise\
+        \ it stays down. Not supported with more than one worker. Disabled unless\
+        \ HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true."
+      operationId: restart_server
+      parameters:
+      - explode: false
+        in: header
+        name: authorization
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerRestartResponse'
+          description: Successful Response
+        "409":
+          description: Restarting is not supported in this configuration
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Restart the server
+      tags:
+      - Settings
+  /v1/default/settings/llm/test:
+    post:
+      description: "Make one minimal call with the given connection (same body as\
+        \ the save endpoint, nothing is saved) to check the model is usable. A real\
+        \ provider call, so run it deliberately. Returns status only. Disabled unless\
+        \ HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true."
+      operationId: test_global_llm_settings
+      parameters:
+      - explode: false
+        in: header
+        name: authorization
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GlobalLLMSettingsUpdate'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalLLMTestResponse'
+          description: Successful Response
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Test a global LLM connection
+      tags:
+      - Settings
   /v1/default/banks/{bank_id}/health/llm:
     post:
       description: "Probe the LLMs this bank would use for retain / consolidation\
@@ -5944,6 +6340,54 @@ components:
       required:
       - content
       title: AddBackgroundRequest
+    ApiAuthSettingsResponse:
+      description: API authorization state. Never includes the key itself.
+      example:
+        admin_username: admin_username
+        api_key_hint: api_key_hint
+        managed_by_extension: true
+        enabled: true
+      properties:
+        enabled:
+          description: Whether callers must send an API key
+          title: Enabled
+          type: boolean
+        api_key_hint:
+          nullable: true
+          type: string
+        managed_by_extension:
+          description: "True when a tenant extension handles authentication, so it\
+            \ cannot be changed here"
+          title: Managed By Extension
+          type: boolean
+        admin_username:
+          nullable: true
+          type: string
+      required:
+      - api_key_hint
+      - enabled
+      - managed_by_extension
+      title: ApiAuthSettingsResponse
+    ApiAuthSettingsUpdate:
+      description: "Turn API key authorization on or off. ``api_key`` is write-only:\
+        \ omit it to keep the saved key."
+      example:
+        api_key: api_key
+        enabled: true
+      properties:
+        enabled:
+          description: Whether callers must send an API key
+          title: Enabled
+          type: boolean
+        api_key:
+          maxLength: 256
+          minLength: 16
+          nullable: true
+          pattern: ^\S+$
+          type: string
+      required:
+      - enabled
+      title: ApiAuthSettingsUpdate
     AsyncOperationSubmitResponse:
       description: Response model for submitting an async operation.
       example:
@@ -6180,6 +6624,17 @@ components:
       - started_at
       - transport
       title: AuditLogSummary
+    AuthStatusResponse:
+      example:
+        login_required: true
+      properties:
+        login_required:
+          description: Whether the control plane page asks for a username and password
+          title: Login Required
+          type: boolean
+      required:
+      - login_required
+      title: AuthStatusResponse
     BackgroundResponse:
       description: "Response model for background update. Deprecated: use MissionResponse\
         \ instead."
@@ -8956,6 +9411,12 @@ components:
           description: Whether the per-bank LLM connectivity probe is enabled
           title: Bank Llm Health
           type: boolean
+        global_settings_api:
+          default: false
+          description: "Whether the global settings API (LLM connection, API key,\
+            \ page login) is enabled"
+          title: Global Settings Api
+          type: boolean
         file_upload_api:
           description: Whether file upload/conversion API is enabled
           title: File Upload Api
@@ -9033,6 +9494,166 @@ components:
       required:
       - operation_ids
       title: FileRetainResponse
+    GlobalLLMModelsResponse:
+      description: "Models the endpoint offers. Status only on failure, never the\
+        \ raw error."
+      example:
+        models:
+        - models
+        - models
+        status: status
+      properties:
+        status:
+          description: "'listed', 'auth_failed', 'unreachable', 'timeout', 'unsupported'\
+            \ (this provider has no model list, or needs a base URL first) or 'invalid_response'"
+          title: Status
+          type: string
+        models:
+          description: "Model ids, sorted"
+          items:
+            type: string
+          type: array
+      required:
+      - models
+      - status
+      title: GlobalLLMModelsResponse
+    GlobalLLMSettingsResponse:
+      description: Global LLM connection. Never includes the API key itself.
+      example:
+        effective_provider: effective_provider
+        server_started_at: 2000-01-23T04:56:07.000+00:00
+        restart_required: true
+        effective_model: effective_model
+        provider: provider
+        effective_base_url: effective_base_url
+        api_key_hint: api_key_hint
+        base_url: base_url
+        effective_api_key_hint: effective_api_key_hint
+        api_key_set: true
+        model: model
+        effective_api_key_set: true
+      properties:
+        effective_provider:
+          description: Provider the running server is using
+          title: Effective Provider
+          type: string
+        effective_model:
+          description: Model the running server is using
+          title: Effective Model
+          type: string
+        effective_base_url:
+          nullable: true
+          type: string
+        server_started_at:
+          description: When this server process started; changes after a restart
+          format: date-time
+          title: Server Started At
+          type: string
+        effective_api_key_set:
+          description: Whether the running server has an API key
+          title: Effective Api Key Set
+          type: boolean
+        effective_api_key_hint:
+          nullable: true
+          type: string
+        provider:
+          description: Provider the server will use after the next restart
+          title: Provider
+          type: string
+        model:
+          description: Model the server will use after the next restart
+          title: Model
+          type: string
+        base_url:
+          nullable: true
+          type: string
+        api_key_set:
+          description: Whether an API key is configured (saved or from the environment)
+          title: Api Key Set
+          type: boolean
+        api_key_hint:
+          nullable: true
+          type: string
+        restart_required:
+          description: True when the settings differ from what the server is running
+          title: Restart Required
+          type: boolean
+      required:
+      - api_key_hint
+      - api_key_set
+      - base_url
+      - effective_api_key_hint
+      - effective_api_key_set
+      - effective_base_url
+      - effective_model
+      - effective_provider
+      - model
+      - provider
+      - restart_required
+      - server_started_at
+      title: GlobalLLMSettingsResponse
+    GlobalLLMSettingsUpdate:
+      description: |-
+        The global LLM connection to save (or to test). Blank optional fields clear the saved value, so
+        the environment applies again. ``api_key`` is write-only: omit it to keep the saved key.
+      example:
+        provider: provider
+        api_key: api_key
+        base_url: base_url
+        model: model
+        clear_api_key: false
+      properties:
+        provider:
+          description: "API compatibility type / provider, e.g. 'openai' (any OpenAI-compatible\
+            \ endpoint), 'anthropic'"
+          maxLength: 64
+          pattern: "^[a-z0-9][a-z0-9-]*$"
+          title: Provider
+          type: string
+        model:
+          maxLength: 256
+          nullable: true
+          type: string
+        base_url:
+          maxLength: 512
+          nullable: true
+          pattern: ^https?://\S+$
+          type: string
+        api_key:
+          maxLength: 4096
+          nullable: true
+          type: string
+        clear_api_key:
+          default: false
+          description: Remove the saved API key
+          title: Clear Api Key
+          type: boolean
+      required:
+      - provider
+      title: GlobalLLMSettingsUpdate
+    GlobalLLMTestResponse:
+      description: "Result of one minimal call against the LLM connection being edited.\
+        \ Status only, never the raw error."
+      example:
+        ok: true
+        status: status
+        latency_ms: 0.8008281904610115
+      properties:
+        ok:
+          title: Ok
+          type: boolean
+        status:
+          description: "'connected', 'not_configured', 'auth_failed', 'unreachable'\
+            \ or 'timeout'"
+          title: Status
+          type: string
+        latency_ms:
+          nullable: true
+          type: number
+      required:
+      - ok
+      - status
+      title: GlobalLLMTestResponse
     GraphDataResponse:
       description: Response model for graph data endpoint.
       example:
@@ -10186,6 +10807,46 @@ components:
       - operation
       - status
       title: LlmOperationHealth
+    LoginRequest:
+      example:
+        password: password
+        username: username
+      properties:
+        username:
+          maxLength: 64
+          title: Username
+          type: string
+        password:
+          maxLength: 256
+          title: Password
+          type: string
+      required:
+      - password
+      - username
+      title: LoginRequest
+    LoginResponse:
+      example:
+        session_token: session_token
+        expires_at: 2000-01-23T04:56:07.000+00:00
+        api_key: api_key
+      properties:
+        session_token:
+          description: "Signed, expiring token for the control plane's session cookie"
+          title: Session Token
+          type: string
+        expires_at:
+          description: When the session ends
+          format: date-time
+          title: Expires At
+          type: string
+        api_key:
+          nullable: true
+          type: string
+      required:
+      - api_key
+      - expires_at
+      - session_token
+      title: LoginResponse
     MapField-Input:
       description: A field within a map-type entity label group. Supports recursion
         via type='map'.
@@ -11898,6 +12559,27 @@ components:
       - operations
       - total
       title: OperationsListResponse
+    PageLoginUpdate:
+      description: The one account that signs in to the control plane page.
+      example:
+        password: password
+        username: username
+      properties:
+        username:
+          maxLength: 64
+          minLength: 3
+          pattern: "^[A-Za-z0-9._@-]+$"
+          title: Username
+          type: string
+        password:
+          maxLength: 256
+          minLength: 8
+          title: Password
+          type: string
+      required:
+      - password
+      - username
+      title: PageLoginUpdate
     PromptBlockModel:
       description: |-
         One block of a message: its text, and the setting that decides it.
@@ -12991,6 +13673,27 @@ components:
       - field
       - kind
       title: RunSettingModel
+    ServerRestartResponse:
+      example:
+        restarting: true
+      properties:
+        restarting:
+          description: True once the server has scheduled its own shutdown
+          title: Restarting
+          type: boolean
+      required:
+      - restarting
+      title: ServerRestartResponse
+    SessionResponse:
+      example:
+        username: username
+      properties:
+        username:
+          title: Username
+          type: string
+      required:
+      - username
+      title: SessionResponse
     SetBankAliasPrimaryRequest:
       description: Request model for showing (or no longer showing) an alias in place
         of the bank id.
@@ -13640,6 +14343,7 @@ components:
           document_export_api: true
           document_import_api: true
           file_upload_api: true
+          global_settings_api: false
           llm_trace: false
           mcp: true
           observations: false
