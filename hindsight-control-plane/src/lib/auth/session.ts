@@ -1,6 +1,8 @@
 import type { NextRequest } from "next/server";
 
 export const ACCESS_KEY_COOKIE = "hindsight_cp_access";
+/** Holds the API's signed session token once the admin account has signed in. */
+export const ACCOUNT_SESSION_COOKIE = "hindsight_cp_session";
 /** Set on the 401 the middleware returns when the UI session itself is missing or invalid. */
 export const SESSION_REQUIRED_HEADER = "x-hindsight-session-required";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24;

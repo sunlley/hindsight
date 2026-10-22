@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { localizeApiErrorPayload } from "@/lib/i18n/api-errors";
+import { isLoginRequired } from "@/lib/auth/account";
+import { signInWithAccount, startSession } from "@/lib/auth/account-login";
 
 import {
   ACCESS_KEY_COOKIE,
@@ -8,7 +10,40 @@ import {
   sessionCookieOptions,
 } from "@/lib/auth/session";
 
+/** Sign in with the admin account set up on the Settings page; the API checks it. */
+async function accountLogin(request: NextRequest) {
+  const { username, password } = (await request.json().catch(() => ({}))) as {
+    username?: string;
+    password?: string;
+  };
+  const failure = (status: number, error: string, errorKey: string) =>
+    NextResponse.json(localizeApiErrorPayload(request, { error, errorKey }), { status });
+
+  if (!username || !password) {
+    return failure(401, "Wrong username or password", "api.errors.auth.invalidCredentials");
+  }
+  try {
+    const result = await signInWithAccount(username, password);
+    if (!result.ok) {
+      return result.status === 429
+        ? failure(429, "Too many attempts", "api.errors.auth.tooManyAttempts")
+        : failure(401, "Wrong username or password", "api.errors.auth.invalidCredentials");
+    }
+    const response = NextResponse.json({ success: true });
+    startSession(response, request, result.session);
+    return response;
+  } catch (err) {
+    console.error("Error signing in:", err);
+    return failure(502, "Could not reach the API", "api.errors.auth.apiUnreachable");
+  }
+}
+
 export async function POST(request: NextRequest) {
+  // The admin account, once set up on the Settings page, replaces the access key from the environment.
+  if (await isLoginRequired({ fresh: true })) {
+    return accountLogin(request);
+  }
+
   const accessKey = process.env.HINDSIGHT_CP_ACCESS_KEY;
 
   // If no access key is configured, return 503

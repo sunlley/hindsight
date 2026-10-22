@@ -5,6 +5,7 @@
 
 import { toast } from "sonner";
 import { bankApi, bankStatsApi, chunkApi, documentApi, memoryApi } from "./bank-url";
+import { API_KEY_REQUIRED_EVENT } from "./api-key-required";
 import { SESSION_REQUIRED_HEADER } from "./auth/session";
 import { stripBasePath, withBasePath } from "./base-path";
 import { appendTagFilter, type TagFilter, type TagsMatch } from "./tag-filter-params";
@@ -459,6 +460,49 @@ interface DocumentHistoryResponse {
   items: DocumentEvent[];
 }
 
+export interface GlobalLlmSettings {
+  effective_provider: string;
+  effective_model: string;
+  effective_base_url: string | null;
+  server_started_at: string;
+  effective_api_key_set: boolean;
+  effective_api_key_hint: string | null;
+  provider: string;
+  model: string;
+  base_url: string | null;
+  api_key_set: boolean;
+  api_key_hint: string | null;
+  restart_required: boolean;
+}
+
+/** `api_key` is write-only: omit it to keep the saved key. */
+export interface GlobalLlmSettingsInput {
+  provider: string;
+  model: string | null;
+  base_url: string | null;
+  api_key?: string | null;
+  clear_api_key?: boolean;
+}
+
+export interface GlobalLlmModels {
+  status: "listed" | "auth_failed" | "unreachable" | "timeout" | "unsupported" | "invalid_response";
+  models: string[];
+}
+
+export interface ApiAuthSettings {
+  enabled: boolean;
+  api_key_hint: string | null;
+  managed_by_extension: boolean;
+  /** The account the page signs in with, or null when the page needs no login. */
+  admin_username: string | null;
+}
+
+export interface GlobalLlmTestResult {
+  ok: boolean;
+  status: "connected" | "not_configured" | "auth_failed" | "unreachable" | "timeout";
+  latency_ms: number | null;
+}
+
 export class ControlPlaneClient {
   private async fetchApi<T>(
     path: string,
@@ -488,6 +532,14 @@ export class ControlPlaneClient {
         ) {
           window.location.href = withBasePath(`/login?returnTo=${encodeURIComponent(currentPath)}`);
           throw new Error("Unauthorized");
+        }
+        // The API itself wants a key this control plane does not have: ask for it on the page. The prompt
+        // is the message, so no error toast on top of it; the caller still gets the 401.
+        // Not the control plane's own session refusing (that one is marked, and means "sign in").
+        const promptedForApiKey =
+          response.status === 401 && !response.headers.get(SESSION_REQUIRED_HEADER);
+        if (promptedForApiKey) {
+          window.dispatchEvent(new Event(API_KEY_REQUIRED_EVENT));
         }
 
         // Try to parse error response
@@ -521,7 +573,7 @@ export class ControlPlaneClient {
         const description = describeErrorDetails(errorDetails) || errorMessage;
         const status = response.status;
 
-        if (!suppressErrorToast) {
+        if (!suppressErrorToast && !promptedForApiKey) {
           if (isClientError) {
             // Client errors (4xx) - validation, bad request, etc. - show as warning
             toast.warning("Client Error", {
@@ -2107,6 +2159,66 @@ export class ControlPlaneClient {
     >(bankApi(bankId, `/mental-models/${encodeURIComponent(mentalModelId)}/history`));
   }
 
+  /** Global LLM provider/model: what is running, and what is saved for the next restart. */
+  async getGlobalLlmSettings() {
+    return this.fetchApi<GlobalLlmSettings>("/api/settings/llm");
+  }
+
+  async updateGlobalLlmSettings(settings: GlobalLlmSettingsInput) {
+    return this.fetchApi<GlobalLlmSettings>("/api/settings/llm", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    });
+  }
+
+  async getApiAuthSettings() {
+    return this.fetchApi<ApiAuthSettings>("/api/settings/auth");
+  }
+
+  /** `api_key` is write-only: omit it to keep the saved key. */
+  async updateApiAuthSettings(settings: { enabled: boolean; api_key?: string }) {
+    return this.fetchApi<ApiAuthSettings>("/api/settings/auth", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    });
+  }
+
+  /** Set the account the page signs in with. The caller is signed in as it. */
+  async setPageLoginAccount(account: { username: string; password: string }) {
+    return this.fetchApi<ApiAuthSettings>("/api/settings/auth/admin", {
+      method: "PUT",
+      body: JSON.stringify(account),
+    });
+  }
+
+  async removePageLoginAccount() {
+    return this.fetchApi<ApiAuthSettings>("/api/settings/auth/admin", { method: "DELETE" });
+  }
+
+  /** Ask the server to shut down gracefully; whatever supervises it must start it again. */
+  async restartServer() {
+    return this.fetchApi<{ restarting: boolean }>("/api/settings/restart", {
+      method: "POST",
+      body: "{}",
+    });
+  }
+
+  /** The models the endpoint being edited offers; nothing is saved. */
+  async listGlobalLlmModels(settings: GlobalLlmSettingsInput) {
+    return this.fetchApi<GlobalLlmModels>("/api/settings/llm/models", {
+      method: "POST",
+      body: JSON.stringify(settings),
+    });
+  }
+
+  /** One minimal call against the connection being edited; nothing is saved. */
+  async testGlobalLlmSettings(settings: GlobalLlmSettingsInput) {
+    return this.fetchApi<GlobalLlmTestResult>("/api/settings/llm/test", {
+      method: "POST",
+      body: JSON.stringify(settings),
+    });
+  }
+
   /**
    * Get API version and feature flags
    * Use this to check which capabilities are available in the dataplane
@@ -2119,6 +2231,7 @@ export class ControlPlaneClient {
         mcp: boolean;
         worker: boolean;
         bank_config_api: boolean;
+        global_settings_api: boolean;
         file_upload_api: boolean;
         document_export_api: boolean;
         document_import_api: boolean;
