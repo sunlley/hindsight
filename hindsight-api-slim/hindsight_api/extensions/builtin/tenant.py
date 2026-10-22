@@ -1,20 +1,24 @@
 """Built-in tenant extension implementations."""
 
+import secrets
+
 from hindsight_api.config import get_config
 from hindsight_api.extensions.tenant import AuthenticationError, Tenant, TenantContext, TenantExtension
+from hindsight_api.global_settings import load_global_settings
 from hindsight_api.models import RequestContext
 
 
 class DefaultTenantExtension(TenantExtension):
     """
-    Default single-tenant extension with no authentication.
+    Default single-tenant extension: no authentication, unless an API access key is set.
 
     This is the default extension used when no tenant extension is configured.
     It provides single-tenant behavior using the configured schema from
     HINDSIGHT_API_DATABASE_SCHEMA (defaults to 'public').
 
     Features:
-    - No authentication required (passes all requests)
+    - No authentication required (passes all requests), until an API key is saved from the
+      control plane's Settings page; then every request must send it as a Bearer token
     - Uses configured schema from environment
     - Perfect for single-tenant deployments without auth
 
@@ -31,9 +35,24 @@ class DefaultTenantExtension(TenantExtension):
         # Cache the schema at initialization for consistency
         # Support explicit schema override via config, otherwise use environment
         self._schema = config.get("schema", get_config().database_schema)
+        # Held here rather than read from the settings file per request, and swapped by set_api_key: the
+        # engine, the config resolver and the MCP server all hold this one object, so a save reaches them all.
+        self._api_key: str | None = load_global_settings().auth.api_key
+
+    @property
+    def api_key(self) -> str | None:
+        return self._api_key
+
+    def set_api_key(self, api_key: str | None) -> None:
+        """Require ``api_key`` from now on, or open the API again with ``None``."""
+        self._api_key = api_key
 
     async def authenticate(self, context: RequestContext) -> TenantContext:
-        """Return configured schema without any authentication."""
+        """Return the configured schema; with an API key set, only to a caller that sends it."""
+        if self._api_key is not None and not secrets.compare_digest(
+            (context.api_key or "").encode(), self._api_key.encode()
+        ):
+            raise AuthenticationError("Invalid API key")
         return TenantContext(schema_name=self._schema)
 
     async def list_tenants(self) -> list[Tenant]:

@@ -183,6 +183,10 @@ class ConfigResolver:
         # The API-visible subset, resolved once: every config read filters to it.
         self._public_fields = frozenset(self._configurable_fields - self._credential_fields)
 
+    def refresh_global_config(self) -> None:
+        """Adopt the global config as rebuilt after settings were saved at runtime."""
+        self._global_config = _get_raw_config()
+
     async def _resolve_tenant_overrides(self, scope: str, context: RequestContext | None = None) -> dict[str, Any]:
         """Tenant-level overrides to apply on top of the global config.
 
