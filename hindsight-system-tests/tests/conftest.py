@@ -337,6 +337,28 @@ async def typesafe_client(typesafe_server) -> AsyncIterator[Hindsight]:
     await client.aclose()
 
 
+@pytest.fixture(scope="session")
+def settings_server(stub_server, tmp_path_factory: pytest.TempPathFactory) -> Iterator[object]:
+    """A server with the global settings API on, saving to a settings file of its own.
+
+    The API rewrites the server's LLM connection, which is server-level state no other story
+    may see change under it, hence a process. HTTP only, for the same reason as
+    ``typesafe_server``: a worker here would run the other servers' queued work.
+    """
+    run_dir = tmp_path_factory.mktemp("settings-server")
+    server = start_hindsight_server(
+        stub_url=stub_server.url,
+        log_path=run_dir / "server.log",
+        extra_env={
+            "HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API": "true",
+            "HINDSIGHT_API_SETTINGS_FILE": str(run_dir / "settings.json"),
+            "HINDSIGHT_API_WORKER_ENABLED": "false",
+        },
+    )
+    yield server
+    server.stop()
+
+
 @pytest.fixture
 async def decision_model_client(decision_model_server) -> AsyncIterator[Hindsight]:
     client = Hindsight(base_url=decision_model_server.url)
