@@ -9,6 +9,7 @@ interface Features {
   worker: boolean;
   bank_config_api: boolean;
   bank_llm_health: boolean;
+  global_settings_api: boolean;
   access_key_auth: boolean;
   document_export_api: boolean;
   document_import_api: boolean;
@@ -29,6 +30,7 @@ const defaultFeatures: Features = {
   worker: false,
   bank_config_api: false,
   bank_llm_health: false,
+  global_settings_api: false,
   access_key_auth: false,
   document_export_api: false,
   document_import_api: false,

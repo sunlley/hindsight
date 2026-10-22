@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import { ControlPlaneClient } from "@/lib/api";
+import { API_KEY_REQUIRED_EVENT } from "@/lib/api-key-required";
 
 vi.mock("sonner", () => ({
   toast: {
@@ -12,13 +13,16 @@ vi.mock("sonner", () => ({
 describe("ControlPlaneClient error handling", () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
   let client: ControlPlaneClient;
+  let dispatchEvent: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     client = new ControlPlaneClient();
     fetchSpy = vi.spyOn(globalThis, "fetch");
+    dispatchEvent = vi.fn();
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: {
+        dispatchEvent,
         location: {
           href: "",
           pathname: "/en/dashboard",
@@ -82,6 +86,34 @@ describe("ControlPlaneClient error handling", () => {
 
     await expect(client.getBankConfig("bank-a")).rejects.toMatchObject({ status: 401 });
     expect(window.location.href).toBe("");
+  });
+
+  it("asks for the API key on the page, without an error toast, when the dataplane answers 401", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 })
+    );
+
+    await expect(client.getBankConfig("bank-a")).rejects.toMatchObject({ status: 401 });
+
+    expect(dispatchEvent).toHaveBeenCalledOnce();
+    expect(dispatchEvent.mock.calls[0][0].type).toBe(API_KEY_REQUIRED_EVENT);
+    expect(toast.warning).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("does not ask for the API key when the 401 is the control plane's own session refusing", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "x-hindsight-session-required": "1" },
+      })
+    );
+    // Already on the login page, so no redirect either: nothing may fire the key prompt.
+    (window as unknown as { location: { pathname: string } }).location.pathname = "/login";
+
+    await expect(client.getBankConfig("bank-a")).rejects.toMatchObject({ status: 401 });
+
+    expect(dispatchEvent).not.toHaveBeenCalled();
   });
 
   it("does not show upstream response details for 5xx failures", async () => {

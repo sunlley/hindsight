@@ -11,6 +11,8 @@ import json
 import logging
 import os
 import re
+import secrets
+import signal
 import time
 import traceback
 import uuid
@@ -25,6 +27,13 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from hindsight_api.admin_login import (
+    LoginThrottle,
+    hash_password,
+    issue_session_token,
+    verify_login,
+    verify_session_token,
+)
 from hindsight_api.api import page_markdown
 from hindsight_api.api.admission import AdmissionAbandoned, AdmissionRejected, build_controller_from_config
 from hindsight_api.api.disconnect import ClientDisconnectCancellationMiddleware, get_scope_cancellation_token
@@ -42,6 +51,7 @@ from hindsight_api.engine.audit import (
 from hindsight_api.engine.document_history import DocumentHistoryResponse
 from hindsight_api.engine.llm_trace import LLMCallType, LLMRequestListResponse, LLMRequestStatsResponse
 from hindsight_api.extensions import AuthenticationError, BankWriteOperation, PrecheckOperation
+from hindsight_api.global_settings import GlobalLLMSettings
 
 
 def _parse_metadata(metadata: Any) -> dict[str, Any]:
@@ -315,6 +325,9 @@ from hindsight_api.metrics import (
 from hindsight_api.models import RequestContext
 
 logger = logging.getLogger(__name__)
+
+# Fixed at import, so it moves only when the process restarts.
+_PROCESS_STARTED_AT = datetime.now(timezone.utc)
 
 
 def _internal_error(exc: Exception, where: str) -> HTTPException:
@@ -3174,6 +3187,121 @@ class LlmOperationHealth(BaseModel):
     latency_ms: float | None = Field(default=None, description="Round-trip latency of the probe call")
 
 
+class GlobalLLMSettingsUpdate(BaseModel):
+    """The global LLM connection to save (or to test). Blank optional fields clear the saved value, so
+    the environment applies again. ``api_key`` is write-only: omit it to keep the saved key."""
+
+    provider: str = Field(
+        pattern=r"^[a-z0-9][a-z0-9-]*$",
+        max_length=64,
+        description="API compatibility type / provider, e.g. 'openai' (any OpenAI-compatible endpoint), 'anthropic'",
+    )
+    model: str | None = Field(default=None, max_length=256, description="Model name; blank uses the provider default")
+    base_url: str | None = Field(default=None, pattern=r"^https?://\S+$", max_length=512, description="Endpoint URL")
+    api_key: str | None = Field(default=None, max_length=4096, description="API key; omit to keep the saved key")
+    clear_api_key: bool = Field(default=False, description="Remove the saved API key")
+
+    @field_validator("model", "base_url", "api_key", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, v: object) -> object:
+        return None if isinstance(v, str) and not v.strip() else (v.strip() if isinstance(v, str) else v)
+
+
+class GlobalLLMSettingsResponse(BaseModel):
+    """Global LLM connection. Never includes the API key itself."""
+
+    effective_provider: str = Field(description="Provider the running server is using")
+    effective_model: str = Field(description="Model the running server is using")
+    effective_base_url: str | None = Field(description="Endpoint the running server is using")
+    server_started_at: datetime = Field(description="When this server process started; changes after a restart")
+    effective_api_key_set: bool = Field(description="Whether the running server has an API key")
+    effective_api_key_hint: str | None = Field(description="Last characters of the running server's API key")
+    provider: str = Field(description="Provider the server will use after the next restart")
+    model: str = Field(description="Model the server will use after the next restart")
+    base_url: str | None = Field(description="Endpoint the server will use after the next restart")
+    api_key_set: bool = Field(description="Whether an API key is configured (saved or from the environment)")
+    api_key_hint: str | None = Field(description="Last characters of the API key, for recognising it")
+    restart_required: bool = Field(description="True when the settings differ from what the server is running")
+
+
+class GlobalLLMModelsResponse(BaseModel):
+    """Models the endpoint offers. Status only on failure, never the raw error."""
+
+    status: str = Field(
+        description="'listed', 'auth_failed', 'unreachable', 'timeout', 'unsupported' (this provider has no model "
+        "list, or needs a base URL first) or 'invalid_response'"
+    )
+    models: list[str] = Field(description="Model ids, sorted")
+
+
+class ApiAuthSettingsUpdate(BaseModel):
+    """Turn API key authorization on or off. ``api_key`` is write-only: omit it to keep the saved key."""
+
+    enabled: bool = Field(description="Whether callers must send an API key")
+    api_key: str | None = Field(
+        default=None,
+        min_length=16,
+        max_length=256,
+        pattern=r"^\S+$",
+        description="The key callers must send as 'Authorization: Bearer <key>'; at least 16 characters",
+    )
+
+
+class ApiAuthSettingsResponse(BaseModel):
+    """API authorization state. Never includes the key itself."""
+
+    enabled: bool = Field(description="Whether callers must send an API key")
+    api_key_hint: str | None = Field(description="Last characters of the key, for recognising it")
+    managed_by_extension: bool = Field(
+        description="True when a tenant extension handles authentication, so it cannot be changed here"
+    )
+    admin_username: str | None = Field(
+        default=None, description="The account the control plane page asks for, or null when the page needs no login"
+    )
+
+
+class PageLoginUpdate(BaseModel):
+    """The one account that signs in to the control plane page."""
+
+    username: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9._@-]+$")
+    password: str = Field(min_length=8, max_length=256)
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(max_length=64)
+    password: str = Field(max_length=256)
+
+
+class LoginResponse(BaseModel):
+    session_token: str = Field(description="Signed, expiring token for the control plane's session cookie")
+    expires_at: datetime = Field(description="When the session ends")
+    api_key: str | None = Field(
+        description="The API key, for the control plane to use on this user's behalf. Null when the API is open."
+    )
+
+
+class AuthStatusResponse(BaseModel):
+    login_required: bool = Field(description="Whether the control plane page asks for a username and password")
+
+
+class SessionResponse(BaseModel):
+    username: str
+
+
+class ServerRestartResponse(BaseModel):
+    restarting: bool = Field(description="True once the server has scheduled its own shutdown")
+
+
+class GlobalLLMTestResponse(BaseModel):
+    """Result of one minimal call against the LLM connection being edited. Status only, never the raw error."""
+
+    ok: bool
+    status: str = Field(
+        description="'connected', 'not_configured', 'missing_api_key', 'auth_failed', 'unreachable' or 'timeout'"
+    )
+    latency_ms: float | None = None
+
+
 class BankLlmHealthResponse(BaseModel):
     """Per-bank LLM connectivity probe across retain/consolidation/reflect. Operations
     that share a configuration are probed once. Discloses status only — never the
@@ -4990,6 +5118,11 @@ class FeaturesInfo(BaseModel):
     worker: bool = Field(description="Whether the background worker is enabled")
     bank_config_api: bool = Field(description="Whether per-bank configuration API is enabled")
     bank_llm_health: bool = Field(description="Whether the per-bank LLM connectivity probe is enabled")
+    # Defaulted, unlike the older flags: a client generated from this spec must still read the /version of a
+    # server that predates the field.
+    global_settings_api: bool = Field(
+        default=False, description="Whether the global settings API (LLM connection, API key, page login) is enabled"
+    )
     file_upload_api: bool = Field(description="Whether file upload/conversion API is enabled")
     document_export_api: bool = Field(description="Whether the document export endpoint is enabled")
     document_import_api: bool = Field(description="Whether the document import endpoint is enabled")
@@ -5013,6 +5146,7 @@ class VersionResponse(BaseModel):
                     "worker": True,
                     "bank_config_api": False,
                     "bank_llm_health": True,
+                    "global_settings_api": False,
                     "file_upload_api": True,
                     "document_export_api": True,
                     "document_import_api": True,
@@ -5901,6 +6035,7 @@ def _register_routes(app: FastAPI):
                 worker=config.worker_enabled,
                 bank_config_api=config.enable_bank_config_api,
                 bank_llm_health=config.enable_bank_llm_health,
+                global_settings_api=config.enable_global_settings_api,
                 file_upload_api=config.enable_file_upload_api,
                 document_export_api=config.enable_document_export_api,
                 document_import_api=config.enable_document_import_api,
@@ -6861,6 +6996,405 @@ def _register_routes(app: FastAPI):
             raise
         except Exception as e:
             raise _internal_error(e, f"/v1/default/banks/{bank_id}/stats")
+
+    def _global_llm_settings_response() -> GlobalLLMSettingsResponse:
+        from hindsight_api.config import _get_raw_config, resolve_llm_connection
+
+        running = _get_raw_config()
+        after_restart = resolve_llm_connection()
+        key = after_restart.api_key
+        running_key = running.llm_api_key
+        return GlobalLLMSettingsResponse(
+            effective_provider=running.llm_provider,
+            effective_model=running.llm_model,
+            effective_base_url=running.llm_base_url,
+            server_started_at=_PROCESS_STARTED_AT,
+            effective_api_key_set=bool(running_key),
+            effective_api_key_hint=f"…{running_key[-4:]}" if running_key and len(running_key) > 8 else None,
+            provider=after_restart.provider,
+            model=after_restart.model,
+            base_url=after_restart.base_url,
+            api_key_set=bool(key),
+            api_key_hint=f"…{key[-4:]}" if key and len(key) > 8 else None,
+            restart_required=(
+                (after_restart.provider, after_restart.model, after_restart.base_url, after_restart.api_key)
+                != (running.llm_provider, running.llm_model, running.llm_base_url, running.llm_api_key)
+            ),
+        )
+
+    async def _require_global_settings_api(request_context: RequestContext) -> None:
+        if not get_config().enable_global_settings_api:
+            raise HTTPException(
+                status_code=404,
+                detail="Global settings API is disabled. Set HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true to enable.",
+            )
+        # These rewrite the server-wide LLM connection and restart the process, so they are as protected
+        # as any tenant-scoped call. get_request_context only reads the header; this is what checks it.
+        await app.state.memory._authenticate_tenant(request_context)
+
+    def _admin_username() -> str | None:
+        from hindsight_api.global_settings import load_global_settings
+
+        admin = load_global_settings().auth.admin
+        return admin.username if admin else None
+
+    def _api_auth_state() -> ApiAuthSettingsResponse:
+        from hindsight_api.extensions.builtin.tenant import DefaultTenantExtension
+
+        extension = app.state.memory.tenant_extension
+        if not isinstance(extension, DefaultTenantExtension):
+            return ApiAuthSettingsResponse(
+                enabled=True, api_key_hint=None, managed_by_extension=True, admin_username=_admin_username()
+            )
+        key = extension.api_key
+        return ApiAuthSettingsResponse(
+            enabled=key is not None,
+            api_key_hint=f"…{key[-4:]}" if key else None,
+            managed_by_extension=False,
+            admin_username=_admin_username(),
+        )
+
+    def _llm_settings_from_request(request: GlobalLLMSettingsUpdate) -> GlobalLLMSettings:
+        """The settings a save would write. An omitted key is kept only for the provider and endpoint it was
+        saved for: a request that changes the URL must send the key for it, or the saved key would go to a
+        host of the caller's choosing."""
+        from hindsight_api.global_settings import load_global_settings
+
+        saved = load_global_settings().llm
+        same_endpoint = saved.provider == request.provider and saved.base_url == request.base_url
+        kept_key = saved.api_key if same_endpoint else None
+        return GlobalLLMSettings(
+            provider=request.provider,
+            model=request.model,
+            base_url=request.base_url,
+            api_key=None if request.clear_api_key else (request.api_key or kept_key),
+        )
+
+    @app.get(
+        "/v1/default/settings/auth",
+        response_model=ApiAuthSettingsResponse,
+        summary="Get API authorization settings",
+        description="Whether callers must send an API key. Never returns the key. With a tenant extension "
+        "configured, authentication belongs to the extension and `managed_by_extension` is true. Disabled "
+        "unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        operation_id="get_api_auth_settings",
+        tags=["Settings"],
+    )
+    async def api_get_api_auth_settings(request_context: RequestContext = Depends(get_request_context)):
+        await _require_global_settings_api(request_context)
+        return _api_auth_state()
+
+    @app.put(
+        "/v1/default/settings/auth",
+        response_model=ApiAuthSettingsResponse,
+        summary="Save API authorization settings",
+        description="Turn API key authorization on or off, and set the key. Applies at once to every endpoint and "
+        "the MCP server; callers must send the key as a Bearer token from then on. The key is stored in the "
+        "server's settings file and never returned. Refused (409) when a tenant extension handles authentication. "
+        "Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        operation_id="update_api_auth_settings",
+        tags=["Settings"],
+        responses={
+            409: {"description": "A tenant extension handles authentication, or the server runs several workers"},
+            422: {"description": "Authorization was turned on with no key to require"},
+        },
+    )
+    async def api_update_api_auth_settings(
+        request: ApiAuthSettingsUpdate, request_context: RequestContext = Depends(get_request_context)
+    ):
+        await _require_global_settings_api(request_context)
+        from hindsight_api.extensions.builtin.tenant import DefaultTenantExtension
+        from hindsight_api.global_settings import load_global_settings, save_global_settings
+
+        extension = app.state.memory.tenant_extension
+        if not isinstance(extension, DefaultTenantExtension):
+            raise HTTPException(status_code=409, detail="A tenant extension handles authentication.")
+        if get_config().workers > 1:
+            # Only the worker that got the request would start checking the key; the others would keep
+            # letting everyone in until a restart. Refused rather than half applied.
+            raise HTTPException(
+                status_code=409, detail="API authorization cannot be changed here with more than one worker."
+            )
+        key = (request.api_key or extension.api_key) if request.enabled else None
+        if request.enabled and key is None:
+            raise HTTPException(status_code=422, detail="An API key is required to turn authorization on.")
+        try:
+            settings = load_global_settings()
+            save_global_settings(
+                settings.model_copy(update={"auth": settings.auth.model_copy(update={"api_key": key})})
+            )
+        except OSError as e:
+            raise _internal_error(e, "PUT /v1/default/settings/auth")
+        extension.set_api_key(key)
+        return _api_auth_state()
+
+    login_throttle = LoginThrottle()
+
+    @app.put(
+        "/v1/default/settings/auth/admin",
+        response_model=ApiAuthSettingsResponse,
+        summary="Set the control plane page's login account",
+        description="Create or replace the one account the control plane page asks for. The password is stored "
+        "hashed; changing the account ends every signed-in session. Disabled unless "
+        "HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        operation_id="set_page_login_account",
+        tags=["Settings"],
+    )
+    async def api_set_page_login_account(
+        request: PageLoginUpdate, request_context: RequestContext = Depends(get_request_context)
+    ):
+        await _require_global_settings_api(request_context)
+        from hindsight_api.global_settings import AdminAccount, load_global_settings, save_global_settings
+
+        # scrypt is deliberately slow CPU work: off the event loop, so a sign-in does not stall every request.
+        password_hash = await asyncio.to_thread(hash_password, request.password)
+        settings = load_global_settings()
+        account = AdminAccount(username=request.username, password_hash=password_hash)
+        try:
+            save_global_settings(
+                settings.model_copy(
+                    update={
+                        "auth": settings.auth.model_copy(
+                            update={"admin": account, "session_secret": secrets.token_hex(32)}
+                        )
+                    }
+                )
+            )
+        except OSError as e:
+            raise _internal_error(e, "PUT /v1/default/settings/auth/admin")
+        return _api_auth_state()
+
+    @app.delete(
+        "/v1/default/settings/auth/admin",
+        response_model=ApiAuthSettingsResponse,
+        summary="Turn off the control plane page's login",
+        description="Remove the account, so the page needs no login, and end every signed-in session. Disabled "
+        "unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        operation_id="remove_page_login_account",
+        tags=["Settings"],
+    )
+    async def api_remove_page_login_account(request_context: RequestContext = Depends(get_request_context)):
+        await _require_global_settings_api(request_context)
+        from hindsight_api.global_settings import load_global_settings, save_global_settings
+
+        settings = load_global_settings()
+        try:
+            save_global_settings(
+                settings.model_copy(
+                    update={"auth": settings.auth.model_copy(update={"admin": None, "session_secret": None})}
+                )
+            )
+        except OSError as e:
+            raise _internal_error(e, "DELETE /v1/default/settings/auth/admin")
+        return _api_auth_state()
+
+    @app.get(
+        "/v1/default/auth/status",
+        response_model=AuthStatusResponse,
+        summary="Whether the control plane page needs a login",
+        description="Public. Tells the control plane whether to ask for a username and password.",
+        operation_id="get_auth_status",
+        tags=["Auth"],
+    )
+    async def api_get_auth_status():
+        return AuthStatusResponse(login_required=_admin_username() is not None)
+
+    @app.post(
+        "/v1/default/auth/login",
+        response_model=LoginResponse,
+        summary="Sign in to the control plane page",
+        description="Public. Checks the admin account's username and password and returns a session token, plus "
+        "the API key for the control plane to use on this user's behalf. After 5 failed attempts from one "
+        "caller within 5 minutes, further attempts get 429 until the oldest failure ages out.",
+        operation_id="login",
+        tags=["Auth"],
+        responses={401: {"description": "Wrong username or password"}, 429: {"description": "Too many failures"}},
+    )
+    async def api_login(request: LoginRequest, http_request: Request):
+        from hindsight_api.extensions.builtin.tenant import DefaultTenantExtension
+        from hindsight_api.global_settings import load_global_settings
+
+        # Sign-ins arrive through the control plane, so the peer address is the control plane's for everyone;
+        # throttling on it alone let five wrong passwords from anyone lock the admin out. The control plane
+        # names the browser's address, and the throttle counts per (peer, browser). A caller talking to the
+        # API directly can vary that header to get more attempts, but each one still costs a scrypt check.
+        peer = http_request.client.host if http_request.client else "unknown"
+        browser = (http_request.headers.get("x-forwarded-for") or "").split(",")[0].strip()[:64]
+        caller = f"{peer}|{browser}"
+        wait = login_throttle.seconds_until_allowed(caller)
+        if wait > 0:
+            raise HTTPException(
+                status_code=429, detail="Too many failed attempts.", headers={"Retry-After": str(int(wait) + 1)}
+            )
+
+        auth = load_global_settings().auth
+        admin = auth.admin
+        matched = await asyncio.to_thread(
+            verify_login,
+            request.password,
+            request.username,
+            admin.username if admin else None,
+            admin.password_hash if admin else None,
+        )
+        if not matched or admin is None or auth.session_secret is None:
+            login_throttle.record_failure(caller)
+            raise HTTPException(status_code=401, detail="Wrong username or password.")
+
+        login_throttle.record_success(caller)
+        session = issue_session_token(auth.session_secret, admin.username)
+        extension = app.state.memory.tenant_extension
+        return LoginResponse(
+            session_token=session.token,
+            expires_at=datetime.fromtimestamp(session.expires_at, tz=timezone.utc),
+            api_key=extension.api_key if isinstance(extension, DefaultTenantExtension) else None,
+        )
+
+    @app.get(
+        "/v1/default/auth/session",
+        response_model=SessionResponse,
+        summary="Check a control plane session token",
+        description="Public. Send the session token as a Bearer token; 200 with the username if it is valid.",
+        operation_id="get_session",
+        tags=["Auth"],
+        responses={401: {"description": "No valid session"}},
+    )
+    async def api_get_session(authorization: str | None = Header(default=None)):
+        from hindsight_api.global_settings import load_global_settings
+
+        auth = load_global_settings().auth
+        token = authorization[7:].strip() if authorization and authorization.lower().startswith("bearer ") else ""
+        username = verify_session_token(auth.session_secret, token) if token else None
+        # The account must still exist: removing it ends sessions even though the old secret would verify.
+        if username is None or auth.admin is None or auth.admin.username != username:
+            raise HTTPException(status_code=401, detail="No valid session.")
+        return SessionResponse(username=username)
+
+    @app.get(
+        "/v1/default/settings/llm",
+        response_model=GlobalLLMSettingsResponse,
+        summary="Get global LLM settings",
+        description="Returns the LLM connection (provider, model, base URL) the server is running, and what it will "
+        "use after the next restart. Never returns the API key, only whether one is set. Disabled unless "
+        "HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        operation_id="get_global_llm_settings",
+        tags=["Settings"],
+    )
+    async def api_get_global_llm_settings(request_context: RequestContext = Depends(get_request_context)):
+        await _require_global_settings_api(request_context)
+        return _global_llm_settings_response()
+
+    @app.put(
+        "/v1/default/settings/llm",
+        response_model=GlobalLLMSettingsResponse,
+        summary="Save global LLM settings",
+        description="Save the global LLM connection: provider (API compatibility type), model, base URL and API key, "
+        "and apply it at once: the model is called once with the new connection first, and if that fails nothing "
+        "is saved or changed (409, with the failure status). The key is stored in the server's settings file and "
+        "never returned. With more than one worker the change is saved but only applies after a restart "
+        "(`restart_required`). Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        operation_id="update_global_llm_settings",
+        tags=["Settings"],
+        responses={409: {"description": "The model could not be reached with the new settings; nothing was changed"}},
+    )
+    async def api_update_global_llm_settings(
+        request: GlobalLLMSettingsUpdate, request_context: RequestContext = Depends(get_request_context)
+    ):
+        await _require_global_settings_api(request_context)
+        from hindsight_api.config import clear_config_cache
+        from hindsight_api.engine.memory_engine import LLMSettingsRejected
+        from hindsight_api.global_settings import load_global_settings, save_global_settings
+
+        previous = load_global_settings()
+        try:
+            save_global_settings(previous.model_copy(update={"llm": _llm_settings_from_request(request)}))
+        except OSError as e:
+            raise _internal_error(e, "PUT /v1/default/settings/llm")
+
+        if get_config().workers > 1:
+            # The other worker processes read their settings at startup; a restart is what reaches them all.
+            return _global_llm_settings_response()
+
+        try:
+            await app.state.memory.reload_llm_settings()
+        except Exception as e:
+            # Put the LLM section back so a restart cannot come up on settings that were refused. Only that
+            # section: an auth change saved while the probe ran must not be undone with it.
+            current = load_global_settings()
+            save_global_settings(current.model_copy(update={"llm": previous.llm}))
+            clear_config_cache()
+            if isinstance(e, LLMSettingsRejected):
+                raise HTTPException(status_code=409, detail={"status": e.status})
+            raise _internal_error(e, "PUT /v1/default/settings/llm")
+        return _global_llm_settings_response()
+
+    @app.post(
+        "/v1/default/settings/llm/models",
+        response_model=GlobalLLMModelsResponse,
+        summary="List the models of a global LLM connection",
+        description="Ask the endpoint for its model list, using the given connection (same body as the save endpoint, "
+        "nothing is saved; the model field is ignored). Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        operation_id="list_global_llm_models",
+        tags=["Settings"],
+    )
+    async def api_list_global_llm_models(
+        request: GlobalLLMSettingsUpdate, request_context: RequestContext = Depends(get_request_context)
+    ):
+        await _require_global_settings_api(request_context)
+        from hindsight_api.config import resolve_llm_connection
+        from hindsight_api.llm_models import list_models
+
+        result = await list_models(resolve_llm_connection(_llm_settings_from_request(request)))
+        return GlobalLLMModelsResponse(status=result.status, models=result.models)
+
+    @app.post(
+        "/v1/default/settings/restart",
+        response_model=ServerRestartResponse,
+        summary="Restart the server",
+        description="Shut the server down gracefully so that saved settings take effect. The server does NOT start "
+        "itself again: something must restart the process (Docker `--restart`, systemd, Kubernetes, or a "
+        "supervisor loop), otherwise it stays down. Not supported with more than one worker. Disabled unless "
+        "HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        operation_id="restart_server",
+        tags=["Settings"],
+        responses={409: {"description": "Restarting is not supported in this configuration"}},
+    )
+    async def api_restart_server(request_context: RequestContext = Depends(get_request_context)):
+        await _require_global_settings_api(request_context)
+        if get_config().workers > 1:
+            # Only the worker that got the request would pick the new settings up.
+            raise HTTPException(status_code=409, detail="Restart is not supported with more than one worker.")
+        logger.warning("Server restart requested through the settings API; shutting down for the supervisor")
+        # Let the response go out first. SIGTERM takes uvicorn's graceful shutdown path.
+        asyncio.get_running_loop().call_later(1.0, os.kill, os.getpid(), signal.SIGTERM)
+        return ServerRestartResponse(restarting=True)
+
+    @app.post(
+        "/v1/default/settings/llm/test",
+        response_model=GlobalLLMTestResponse,
+        summary="Test a global LLM connection",
+        description="Make one minimal call with the given connection (same body as the save endpoint, nothing is "
+        "saved) to check the model is usable. A real provider call, so run it deliberately. Returns status only. "
+        "Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        operation_id="test_global_llm_settings",
+        tags=["Settings"],
+    )
+    async def api_test_global_llm_settings(
+        request: GlobalLLMSettingsUpdate, request_context: RequestContext = Depends(get_request_context)
+    ):
+        await _require_global_settings_api(request_context)
+        from hindsight_api.config import resolve_llm_connection
+
+        connection = resolve_llm_connection(_llm_settings_from_request(request))
+        try:
+            outcome = await app.state.memory.probe_llm_connection(
+                provider=connection.provider,
+                model=connection.model,
+                base_url=connection.base_url,
+                api_key=connection.api_key,
+            )
+        except Exception as e:
+            raise _internal_error(e, "POST /v1/default/settings/llm/test")
+        return GlobalLLMTestResponse(ok=outcome.ok, status=outcome.status, latency_ms=outcome.latency_ms)
 
     @app.post(
         "/v1/default/banks/{bank_id}/health/llm",

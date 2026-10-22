@@ -51,6 +51,8 @@ type APIClient struct {
 
 	AuditAPI *AuditAPIService
 
+	AuthAPI *AuthAPIService
+
 	BankTemplatesAPI *BankTemplatesAPIService
 
 	BankTransferAPI *BankTransferAPIService
@@ -79,6 +81,8 @@ type APIClient struct {
 
 	OperationsAPI *OperationsAPIService
 
+	SettingsAPI *SettingsAPIService
+
 	WebhooksAPI *WebhooksAPIService
 }
 
@@ -99,6 +103,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 
 	// API Services
 	c.AuditAPI = (*AuditAPIService)(&c.common)
+	c.AuthAPI = (*AuthAPIService)(&c.common)
 	c.BankTemplatesAPI = (*BankTemplatesAPIService)(&c.common)
 	c.BankTransferAPI = (*BankTransferAPIService)(&c.common)
 	c.BanksAPI = (*BanksAPIService)(&c.common)
@@ -113,6 +118,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.MentalModelsAPI = (*MentalModelsAPIService)(&c.common)
 	c.MonitoringAPI = (*MonitoringAPIService)(&c.common)
 	c.OperationsAPI = (*OperationsAPIService)(&c.common)
+	c.SettingsAPI = (*SettingsAPIService)(&c.common)
 	c.WebhooksAPI = (*WebhooksAPIService)(&c.common)
 
 	return c

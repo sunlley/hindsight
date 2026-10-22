@@ -1221,6 +1221,625 @@
         }
       }
     },
+    "/v1/default/settings/auth": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Get API authorization settings",
+        "description": "Whether callers must send an API key. Never returns the key. With a tenant extension configured, authentication belongs to the extension and `managed_by_extension` is true. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        "operationId": "get_api_auth_settings",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiAuthSettingsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Save API authorization settings",
+        "description": "Turn API key authorization on or off, and set the key. Applies at once to every endpoint and the MCP server; callers must send the key as a Bearer token from then on. The key is stored in the server's settings file and never returned. Refused (409) when a tenant extension handles authentication. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        "operationId": "update_api_auth_settings",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiAuthSettingsUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiAuthSettingsResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A tenant extension handles authentication, or the server runs several workers"
+          },
+          "422": {
+            "description": "Authorization was turned on with no key to require"
+          }
+        }
+      }
+    },
+    "/v1/default/settings/auth/admin": {
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Set the control plane page's login account",
+        "description": "Create or replace the one account the control plane page asks for. The password is stored hashed; changing the account ends every signed-in session. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        "operationId": "set_page_login_account",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PageLoginUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiAuthSettingsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Turn off the control plane page's login",
+        "description": "Remove the account, so the page needs no login, and end every signed-in session. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        "operationId": "remove_page_login_account",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiAuthSettingsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/default/auth/status": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Whether the control plane page needs a login",
+        "description": "Public. Tells the control plane whether to ask for a username and password.",
+        "operationId": "get_auth_status",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/default/auth/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Sign in to the control plane page",
+        "description": "Public. Checks the admin account's username and password and returns a session token, plus the API key for the control plane to use on this user's behalf. After 5 failed attempts from one caller within 5 minutes, further attempts get 429 until the oldest failure ages out.",
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Wrong username or password"
+          },
+          "429": {
+            "description": "Too many failures"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/default/auth/session": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Check a control plane session token",
+        "description": "Public. Send the session token as a Bearer token; 200 with the username if it is valid.",
+        "operationId": "get_session",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/default/settings/llm": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Get global LLM settings",
+        "description": "Returns the LLM connection (provider, model, base URL) the server is running, and what it will use after the next restart. Never returns the API key, only whether one is set. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        "operationId": "get_global_llm_settings",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlobalLLMSettingsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Save global LLM settings",
+        "description": "Save the global LLM connection: provider (API compatibility type), model, base URL and API key, and apply it at once: the model is called once with the new connection first, and if that fails nothing is saved or changed (409, with the failure status). The key is stored in the server's settings file and never returned. With more than one worker the change is saved but only applies after a restart (`restart_required`). Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        "operationId": "update_global_llm_settings",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GlobalLLMSettingsUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlobalLLMSettingsResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The model could not be reached with the new settings; nothing was changed"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/default/settings/llm/models": {
+      "post": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "List the models of a global LLM connection",
+        "description": "Ask the endpoint for its model list, using the given connection (same body as the save endpoint, nothing is saved; the model field is ignored). Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        "operationId": "list_global_llm_models",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GlobalLLMSettingsUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlobalLLMModelsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/default/settings/restart": {
+      "post": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Restart the server",
+        "description": "Shut the server down gracefully so that saved settings take effect. The server does NOT start itself again: something must restart the process (Docker `--restart`, systemd, Kubernetes, or a supervisor loop), otherwise it stays down. Not supported with more than one worker. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        "operationId": "restart_server",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerRestartResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Restarting is not supported in this configuration"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/default/settings/llm/test": {
+      "post": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Test a global LLM connection",
+        "description": "Make one minimal call with the given connection (same body as the save endpoint, nothing is saved) to check the model is usable. A real provider call, so run it deliberately. Returns status only. Disabled unless HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API=true.",
+        "operationId": "test_global_llm_settings",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GlobalLLMSettingsUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlobalLLMTestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/default/banks/{bank_id}/health/llm": {
       "post": {
         "tags": [
@@ -8502,6 +9121,82 @@
           "update_disposition": true
         }
       },
+      "ApiAuthSettingsResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "Whether callers must send an API key"
+          },
+          "api_key_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key Hint",
+            "description": "Last characters of the key, for recognising it"
+          },
+          "managed_by_extension": {
+            "type": "boolean",
+            "title": "Managed By Extension",
+            "description": "True when a tenant extension handles authentication, so it cannot be changed here"
+          },
+          "admin_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admin Username",
+            "description": "The account the control plane page asks for, or null when the page needs no login"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "api_key_hint",
+          "managed_by_extension"
+        ],
+        "title": "ApiAuthSettingsResponse",
+        "description": "API authorization state. Never includes the key itself."
+      },
+      "ApiAuthSettingsUpdate": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "Whether callers must send an API key"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256,
+                "minLength": 16,
+                "pattern": "^\\S+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key",
+            "description": "The key callers must send as 'Authorization: Bearer <key>'; at least 16 characters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "ApiAuthSettingsUpdate",
+        "description": "Turn API key authorization on or off. ``api_key`` is write-only: omit it to keep the saved key."
+      },
       "AsyncOperationSubmitResponse": {
         "properties": {
           "operation_id": {
@@ -8808,6 +9503,20 @@
         ],
         "title": "AuditLogSummary",
         "description": "An audit log entry without its request/response bodies, as the list returns it."
+      },
+      "AuthStatusResponse": {
+        "properties": {
+          "login_required": {
+            "type": "boolean",
+            "title": "Login Required",
+            "description": "Whether the control plane page asks for a username and password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "login_required"
+        ],
+        "title": "AuthStatusResponse"
       },
       "BackgroundResponse": {
         "properties": {
@@ -13094,6 +13803,12 @@
             "title": "Bank Llm Health",
             "description": "Whether the per-bank LLM connectivity probe is enabled"
           },
+          "global_settings_api": {
+            "type": "boolean",
+            "title": "Global Settings Api",
+            "description": "Whether the global settings API (LLM connection, API key, page login) is enabled",
+            "default": false
+          },
           "file_upload_api": {
             "type": "boolean",
             "title": "File Upload Api",
@@ -13197,6 +13912,234 @@
             "550e8400-e29b-41d4-a716-446655440002"
           ]
         }
+      },
+      "GlobalLLMModelsResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "'listed', 'auth_failed', 'unreachable', 'timeout', 'unsupported' (this provider has no model list, or needs a base URL first) or 'invalid_response'"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Models",
+            "description": "Model ids, sorted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "models"
+        ],
+        "title": "GlobalLLMModelsResponse",
+        "description": "Models the endpoint offers. Status only on failure, never the raw error."
+      },
+      "GlobalLLMSettingsResponse": {
+        "properties": {
+          "effective_provider": {
+            "type": "string",
+            "title": "Effective Provider",
+            "description": "Provider the running server is using"
+          },
+          "effective_model": {
+            "type": "string",
+            "title": "Effective Model",
+            "description": "Model the running server is using"
+          },
+          "effective_base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Base Url",
+            "description": "Endpoint the running server is using"
+          },
+          "server_started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Server Started At",
+            "description": "When this server process started; changes after a restart"
+          },
+          "effective_api_key_set": {
+            "type": "boolean",
+            "title": "Effective Api Key Set",
+            "description": "Whether the running server has an API key"
+          },
+          "effective_api_key_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Api Key Hint",
+            "description": "Last characters of the running server's API key"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider",
+            "description": "Provider the server will use after the next restart"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "Model the server will use after the next restart"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url",
+            "description": "Endpoint the server will use after the next restart"
+          },
+          "api_key_set": {
+            "type": "boolean",
+            "title": "Api Key Set",
+            "description": "Whether an API key is configured (saved or from the environment)"
+          },
+          "api_key_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key Hint",
+            "description": "Last characters of the API key, for recognising it"
+          },
+          "restart_required": {
+            "type": "boolean",
+            "title": "Restart Required",
+            "description": "True when the settings differ from what the server is running"
+          }
+        },
+        "type": "object",
+        "required": [
+          "effective_provider",
+          "effective_model",
+          "effective_base_url",
+          "server_started_at",
+          "effective_api_key_set",
+          "effective_api_key_hint",
+          "provider",
+          "model",
+          "base_url",
+          "api_key_set",
+          "api_key_hint",
+          "restart_required"
+        ],
+        "title": "GlobalLLMSettingsResponse",
+        "description": "Global LLM connection. Never includes the API key itself."
+      },
+      "GlobalLLMSettingsUpdate": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[a-z0-9][a-z0-9-]*$",
+            "title": "Provider",
+            "description": "API compatibility type / provider, e.g. 'openai' (any OpenAI-compatible endpoint), 'anthropic'"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "Model name; blank uses the provider default"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512,
+                "pattern": "^https?://\\S+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url",
+            "description": "Endpoint URL"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key",
+            "description": "API key; omit to keep the saved key"
+          },
+          "clear_api_key": {
+            "type": "boolean",
+            "title": "Clear Api Key",
+            "description": "Remove the saved API key",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider"
+        ],
+        "title": "GlobalLLMSettingsUpdate",
+        "description": "The global LLM connection to save (or to test). Blank optional fields clear the saved value, so\nthe environment applies again. ``api_key`` is write-only: omit it to keep the saved key."
+      },
+      "GlobalLLMTestResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "'connected', 'not_configured', 'missing_api_key', 'auth_failed', 'unreachable' or 'timeout'"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "status"
+        ],
+        "title": "GlobalLLMTestResponse",
+        "description": "Result of one minimal call against the LLM connection being edited. Status only, never the raw error."
       },
       "GraphDataResponse": {
         "properties": {
@@ -14522,6 +15465,60 @@
         ],
         "title": "LlmOperationHealth",
         "description": "LLM connectivity status for a single operation. Status only \u2014 no provider/model/\nendpoint/error, so the probe never discloses the LLM configuration."
+      },
+      "LoginRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 256,
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
+      "LoginResponse": {
+        "properties": {
+          "session_token": {
+            "type": "string",
+            "title": "Session Token",
+            "description": "Signed, expiring token for the control plane's session cookie"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At",
+            "description": "When the session ends"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key",
+            "description": "The API key, for the control plane to use on this user's behalf. Null when the API is open."
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_token",
+          "expires_at",
+          "api_key"
+        ],
+        "title": "LoginResponse"
       },
       "MapField-Input": {
         "properties": {
@@ -17348,6 +18345,30 @@
           "total": 150
         }
       },
+      "PageLoginUpdate": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 3,
+            "pattern": "^[A-Za-z0-9._@-]+$",
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 8,
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "PageLoginUpdate",
+        "description": "The one account that signs in to the control plane page."
+      },
       "PromptBlockModel": {
         "properties": {
           "text": {
@@ -19161,6 +20182,33 @@
         "title": "RunSettingModel",
         "description": "A setting that shapes the operation without appearing in its prompt.\n\nChunk sizes decide how the input is cut before extraction runs, so they change\nwhat comes back while contributing no prompt text \u2014 they cannot be blocks, which\npartition the message, and these are in none of it."
       },
+      "ServerRestartResponse": {
+        "properties": {
+          "restarting": {
+            "type": "boolean",
+            "title": "Restarting",
+            "description": "True once the server has scheduled its own shutdown"
+          }
+        },
+        "type": "object",
+        "required": [
+          "restarting"
+        ],
+        "title": "ServerRestartResponse"
+      },
+      "SessionResponse": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "title": "Username"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username"
+        ],
+        "title": "SessionResponse"
+      },
       "SetBankAliasPrimaryRequest": {
         "properties": {
           "primary": {
@@ -20204,6 +21252,7 @@
             "document_export_api": true,
             "document_import_api": true,
             "file_upload_api": true,
+            "global_settings_api": false,
             "llm_trace": false,
             "mcp": true,
             "observations": false,

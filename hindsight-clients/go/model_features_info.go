@@ -31,6 +31,8 @@ type FeaturesInfo struct {
 	BankConfigApi bool `json:"bank_config_api"`
 	// Whether the per-bank LLM connectivity probe is enabled
 	BankLlmHealth bool `json:"bank_llm_health"`
+	// Whether the global settings API (LLM connection, API key, page login) is enabled
+	GlobalSettingsApi *bool `json:"global_settings_api,omitempty"`
 	// Whether file upload/conversion API is enabled
 	FileUploadApi bool `json:"file_upload_api"`
 	// Whether the document export endpoint is enabled
@@ -58,6 +60,8 @@ func NewFeaturesInfo(observations bool, mcp bool, worker bool, bankConfigApi boo
 	this.Worker = worker
 	this.BankConfigApi = bankConfigApi
 	this.BankLlmHealth = bankLlmHealth
+	var globalSettingsApi bool = false
+	this.GlobalSettingsApi = &globalSettingsApi
 	this.FileUploadApi = fileUploadApi
 	this.DocumentExportApi = documentExportApi
 	this.DocumentImportApi = documentImportApi
@@ -72,6 +76,8 @@ func NewFeaturesInfo(observations bool, mcp bool, worker bool, bankConfigApi boo
 // but it doesn't guarantee that properties required by API are set
 func NewFeaturesInfoWithDefaults() *FeaturesInfo {
 	this := FeaturesInfo{}
+	var globalSettingsApi bool = false
+	this.GlobalSettingsApi = &globalSettingsApi
 	return &this
 }
 
@@ -193,6 +199,38 @@ func (o *FeaturesInfo) GetBankLlmHealthOk() (*bool, bool) {
 // SetBankLlmHealth sets field value
 func (o *FeaturesInfo) SetBankLlmHealth(v bool) {
 	o.BankLlmHealth = v
+}
+
+// GetGlobalSettingsApi returns the GlobalSettingsApi field value if set, zero value otherwise.
+func (o *FeaturesInfo) GetGlobalSettingsApi() bool {
+	if o == nil || IsNil(o.GlobalSettingsApi) {
+		var ret bool
+		return ret
+	}
+	return *o.GlobalSettingsApi
+}
+
+// GetGlobalSettingsApiOk returns a tuple with the GlobalSettingsApi field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *FeaturesInfo) GetGlobalSettingsApiOk() (*bool, bool) {
+	if o == nil || IsNil(o.GlobalSettingsApi) {
+		return nil, false
+	}
+	return o.GlobalSettingsApi, true
+}
+
+// HasGlobalSettingsApi returns a boolean if a field has been set.
+func (o *FeaturesInfo) HasGlobalSettingsApi() bool {
+	if o != nil && !IsNil(o.GlobalSettingsApi) {
+		return true
+	}
+
+	return false
+}
+
+// SetGlobalSettingsApi gets a reference to the given bool and assigns it to the GlobalSettingsApi field.
+func (o *FeaturesInfo) SetGlobalSettingsApi(v bool) {
+	o.GlobalSettingsApi = &v
 }
 
 // GetFileUploadApi returns the FileUploadApi field value
@@ -354,6 +392,9 @@ func (o FeaturesInfo) ToMap() (map[string]interface{}, error) {
 	toSerialize["worker"] = o.Worker
 	toSerialize["bank_config_api"] = o.BankConfigApi
 	toSerialize["bank_llm_health"] = o.BankLlmHealth
+	if !IsNil(o.GlobalSettingsApi) {
+		toSerialize["global_settings_api"] = o.GlobalSettingsApi
+	}
 	toSerialize["file_upload_api"] = o.FileUploadApi
 	toSerialize["document_export_api"] = o.DocumentExportApi
 	toSerialize["document_import_api"] = o.DocumentImportApi

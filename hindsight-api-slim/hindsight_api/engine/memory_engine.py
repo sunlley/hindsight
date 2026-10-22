@@ -497,6 +497,14 @@ class BankLlmHealthInfo:
     operations: list[LlmOperationHealthInfo]
 
 
+class LLMSettingsRejected(Exception):
+    """New LLM settings were not applied because the model could not be reached with them."""
+
+    def __init__(self, status: str) -> None:
+        super().__init__(f"LLM settings rejected: {status}")
+        self.status = status
+
+
 @dataclass
 class _LlmProbeOutcome:
     """Internal result of probing a single LLM client (before it's tagged per operation)."""
@@ -2590,6 +2598,447 @@ _GRAPH_LINK_STYLE = {
 }
 
 
+@dataclass(frozen=True)
+class _LLMOverrides:
+    """The LLM arguments a MemoryEngine was constructed with. All unset in production, where the
+    config supplies them; kept so the clients can be rebuilt from new settings the same way."""
+
+    memory_provider: str | None = None
+    memory_api_key: str | None = None
+    memory_model: str | None = None
+    memory_base_url: str | None = None
+    retain_provider: str | None = None
+    retain_api_key: str | None = None
+    retain_model: str | None = None
+    retain_base_url: str | None = None
+    reflect_provider: str | None = None
+    reflect_api_key: str | None = None
+    reflect_model: str | None = None
+    reflect_base_url: str | None = None
+    consolidation_provider: str | None = None
+    consolidation_api_key: str | None = None
+    consolidation_model: str | None = None
+    consolidation_base_url: str | None = None
+
+
+@dataclass(frozen=True)
+class _MemoryLLMIdentity:
+    """The default LLM connection after config defaults are applied."""
+
+    provider: str
+    api_key: Any
+    model: str
+    base_url: str
+
+
+def _resolve_memory_llm(config: Any, o: _LLMOverrides) -> _MemoryLLMIdentity:
+    provider = o.memory_provider or config.llm_provider
+    api_key = o.memory_api_key or config.llm_api_key
+    if not api_key and requires_api_key(provider):
+        raise ValueError("LLM API key is required. Set HINDSIGHT_API_LLM_API_KEY environment variable.")
+    base_url = o.memory_base_url or config.get_llm_base_url() or None
+    return _MemoryLLMIdentity(
+        provider=provider,
+        api_key=api_key,
+        model=o.memory_model or config.llm_model,
+        # Provider-specific default when none was supplied.
+        base_url=base_url if base_url is not None else _provider_default_base_url(provider),
+    )
+
+
+@dataclass
+class _LLMStack:
+    """Every LLM client the engine runs on, built together so they can be swapped in as one."""
+
+    llm_config: "LLMConfig | MultiLLMProvider"
+    llm_client: Any
+    llm_model: str
+    retain_llm_config: "LLMConfig | MultiLLMProvider"
+    vlm_config: "LLMConfig | MultiLLMProvider"
+    reflect_llm_config: "LLMConfig | MultiLLMProvider"
+    mental_model_refresh_llm_timeout_only: bool
+    mental_model_refresh_llm_override: "LLMConfig | MultiLLMProvider | None"
+    consolidation_llm_config: "LLMConfig | MultiLLMProvider"
+
+
+def _build_llm_stack(config: Any, o: _LLMOverrides) -> _LLMStack:
+    """Build every LLM client from ``config`` (plus the construction-time overrides).
+
+    Builds only: nothing on the engine changes, so a failure here leaves the running clients alone.
+    """
+    from ..config import _get_raw_config
+
+    # Gemini safety settings are bank-configurable, so the StaticConfigProxy from
+    # get_config() blocks reading them. The server-level default legitimately seeds
+    # each provider at construction (per-bank values are applied per-call via
+    # ConfiguredLLMProvider), so read it from the raw config. The other LLM fields
+    # below are static and safe to read off the proxy.
+    _llm_gemini_safety_settings = _get_raw_config().llm_gemini_safety_settings
+
+    memory = _resolve_memory_llm(config, o)
+    memory_llm_provider = memory.provider
+    memory_llm_api_key = memory.api_key
+    memory_llm_model = memory.model
+    memory_llm_base_url = memory.base_url
+    retain_llm_provider = o.retain_provider
+    retain_llm_api_key = o.retain_api_key
+    retain_llm_model = o.retain_model
+    retain_llm_base_url = o.retain_base_url
+    reflect_llm_provider = o.reflect_provider
+    reflect_llm_api_key = o.reflect_api_key
+    reflect_llm_model = o.reflect_model
+    reflect_llm_base_url = o.reflect_base_url
+    consolidation_llm_provider = o.consolidation_provider
+    consolidation_llm_api_key = o.consolidation_api_key
+    consolidation_llm_model = o.consolidation_model
+    consolidation_llm_base_url = o.consolidation_base_url
+
+    # Resolve each operation's effective per-request defaults: a per-op override
+    # (``HINDSIGHT_API_RETAIN_LLM_TIMEOUT``, ``..._MAX_RETRIES``, ``..._INITIAL_BACKOFF``,
+    # ``..._MAX_BACKOFF``) wins, otherwise the global ``llm_*``. Threaded all the way
+    # into the provider so the configured value actually governs the call (issue #2452);
+    # previously these per-op fields were resolved into config but never reached the
+    # provider, which silently used the global/method default.
+    def _op_defaults(prefix: str, fallback: _LLMCallDefaults | None = None) -> _LLMCallDefaults:
+        def pick(field: str) -> Any:
+            per_op = getattr(config, f"{prefix}llm_{field}") if prefix else None
+            if per_op is not None:
+                return per_op
+            # ``fallback`` is another operation's already-resolved defaults, for a
+            # group that inherits from a sibling rather than from the global one.
+            return getattr(fallback, field) if fallback is not None else getattr(config, f"llm_{field}")
+
+        return _LLMCallDefaults(
+            timeout=pick("timeout"),
+            max_retries=pick("max_retries"),
+            initial_backoff=pick("initial_backoff"),
+            max_backoff=pick("max_backoff"),
+        )
+
+    default_call_defaults = _op_defaults("")
+    retain_call_defaults = _op_defaults("retain_")
+    reflect_call_defaults = _op_defaults("reflect_")
+    consolidation_call_defaults = _op_defaults("consolidation_")
+    mental_model_refresh_call_defaults = _op_defaults("mental_model_refresh_", fallback=reflect_call_defaults)
+    # Refresh never inherits reflect's timeout. Reflect's is sized for a caller
+    # holding a request open (30s by default); a refresh runs in the background,
+    # and its final answer over a 30k-90k-token prompt cannot finish in 30s: it
+    # timed out on every retry and every tick (#4532). So refresh takes its own
+    # timeout, else the global LLM one, like the other background operations.
+    mental_model_refresh_call_defaults = replace(
+        mental_model_refresh_call_defaults,
+        timeout=config.mental_model_refresh_llm_timeout or config.llm_timeout,
+    )
+    refresh_timeout_differs = mental_model_refresh_call_defaults.timeout != reflect_call_defaults.timeout
+
+    # Initialize LLM configuration (default, used as fallback)
+    _default_base_llm = LLMConfig(
+        provider=memory_llm_provider,
+        api_key=memory_llm_api_key,
+        base_url=memory_llm_base_url,
+        model=memory_llm_model,
+        reasoning_effort=config.llm_reasoning_effort,
+        extra_body=config.llm_extra_body,
+        default_headers=config.llm_default_headers,
+        cache_affinity=config.llm_cache_affinity,
+        ollama_num_ctx=config.llm_ollama_num_ctx,
+        litellmrouter_config=config.llm_litellmrouter_config,
+        bedrock_service_tier=config.llm_bedrock_service_tier,
+        structured_output_forced_tool=config.llm_structured_output_forced_tool,
+        gemini_service_tier=config.llm_gemini_service_tier,
+        groq_service_tier=config.llm_groq_service_tier,
+        openai_service_tier=config.llm_openai_service_tier,
+        gemini_safety_settings=_llm_gemini_safety_settings,
+        prompt_cache_enabled=config.llm_prompt_cache_enabled,
+        codex_home=config.llm_codex_home,
+        vertexai_project_id=config.llm_vertexai_project_id,
+        vertexai_region=config.llm_vertexai_region,
+        vertexai_service_account_key=config.llm_vertexai_service_account_key,
+        **default_call_defaults.as_kwargs(),
+    )
+    llm_config = _build_llm(_default_base_llm, config, "", default_call_defaults)
+
+    # Store client and model for convenience (deprecated: use _llm_config.call() instead).
+    # Read from the primary member so a multi-LLM chain behaves like the base config here.
+    llm_client = _default_base_llm._client
+    llm_model_name = _default_base_llm.model
+
+    # Initialize per-operation LLM configs (fall back to default if not specified)
+    # Retain LLM config - for fact extraction (benefits from strong structured output)
+    retain_provider = retain_llm_provider or config.retain_llm_provider or memory_llm_provider
+    retain_api_key = retain_llm_api_key or config.retain_llm_api_key or memory_llm_api_key
+    retain_model = retain_llm_model or config.retain_llm_model or memory_llm_model
+    retain_base_url = retain_llm_base_url or config.retain_llm_base_url or memory_llm_base_url
+    # Apply provider-specific base URL defaults for retain
+    if retain_base_url is None:
+        if retain_provider.lower() == "groq":
+            retain_base_url = "https://api.groq.com/openai/v1"
+        elif retain_provider.lower() == "ollama":
+            retain_base_url = "http://localhost:11434/v1"
+        elif retain_provider.lower() == "ollama-cloud":
+            retain_base_url = "https://ollama.com/v1"
+        else:
+            retain_base_url = ""
+
+    _retain_base_llm = LLMConfig(
+        provider=retain_provider,
+        api_key=retain_api_key,
+        base_url=retain_base_url,
+        model=retain_model,
+        reasoning_effort=config.retain_llm_reasoning_effort or config.llm_reasoning_effort,
+        extra_body=config.retain_llm_extra_body or config.llm_extra_body,
+        default_headers=config.llm_default_headers,
+        cache_affinity=config.retain_llm_cache_affinity or config.llm_cache_affinity,
+        ollama_num_ctx=config.llm_ollama_num_ctx,
+        litellmrouter_config=config.retain_llm_litellmrouter_config or config.llm_litellmrouter_config,
+        bedrock_service_tier=config.llm_bedrock_service_tier,
+        structured_output_forced_tool=config.llm_structured_output_forced_tool,
+        gemini_service_tier=config.llm_gemini_service_tier,
+        groq_service_tier=config.llm_groq_service_tier,
+        openai_service_tier=config.llm_openai_service_tier,
+        gemini_safety_settings=_llm_gemini_safety_settings,
+        prompt_cache_enabled=config.llm_prompt_cache_enabled,
+        codex_home=config.llm_codex_home,
+        vertexai_project_id=config.llm_vertexai_project_id,
+        vertexai_region=config.llm_vertexai_region,
+        vertexai_service_account_key=config.llm_vertexai_service_account_key,
+        **retain_call_defaults.as_kwargs(),
+    )
+    retain_llm_config = _build_llm(_retain_base_llm, config, "retain_", retain_call_defaults)
+
+    # Vision slot. Extraction uses this only for a chunk that actually
+    # carries an attachment; every other chunk keeps using the retain LLM.
+    #
+    # Without it, one screenshot anywhere in a bank forced *every* retain
+    # call onto a vision-capable model, which is both slower and materially
+    # more expensive for the text-only chunks that are the vast majority.
+    if config.vlm_provider or config.vlm_model or config.vlm_api_key or config.vlm_base_url:
+        vlm_provider = config.vlm_provider or retain_provider
+        _vlm_base_llm = LLMConfig(
+            provider=vlm_provider,
+            api_key=config.vlm_api_key or retain_api_key,
+            # A base URL follows its own provider: naming a vlm_provider
+            # without a URL must resolve *that* provider's default, never
+            # inherit the retain provider's host — which would send the
+            # request to the wrong endpoint carrying the wrong key.
+            base_url=(
+                config.vlm_base_url
+                or (_provider_default_base_url(vlm_provider) if config.vlm_provider else retain_base_url)
+            ),
+            model=config.vlm_model or retain_model,
+            reasoning_effort=config.retain_llm_reasoning_effort or config.llm_reasoning_effort,
+            extra_body=config.retain_llm_extra_body or config.llm_extra_body,
+            default_headers=config.llm_default_headers,
+            cache_affinity=config.retain_llm_cache_affinity or config.llm_cache_affinity,
+            ollama_num_ctx=config.llm_ollama_num_ctx,
+            bedrock_service_tier=config.llm_bedrock_service_tier,
+            structured_output_forced_tool=config.llm_structured_output_forced_tool,
+            gemini_service_tier=config.llm_gemini_service_tier,
+            groq_service_tier=config.llm_groq_service_tier,
+            openai_service_tier=config.llm_openai_service_tier,
+            gemini_safety_settings=_llm_gemini_safety_settings,
+            prompt_cache_enabled=config.llm_prompt_cache_enabled,
+            codex_home=config.llm_codex_home,
+            vertexai_project_id=config.llm_vertexai_project_id,
+            vertexai_region=config.llm_vertexai_region,
+            vertexai_service_account_key=config.llm_vertexai_service_account_key,
+            **retain_call_defaults.as_kwargs(),
+        )
+        # Deliberately NOT run through `_build_llm`: that would make the
+        # vision model member 0 of the *retain* chain and append the retain
+        # fallbacks behind it. Those fallbacks are text models — the whole
+        # reason the operator configured a separate vision slot — so a failed
+        # vision call would quietly fail over to one, extract from the prose
+        # and drop the picture. That is the exact silent omission the 422
+        # gate exists to prevent, and it must not sneak back in as a
+        # fallback. A vision call that fails should fail.
+        vlm_config = _vlm_base_llm
+    else:
+        # Unset: attachments go to the retain LLM, exactly as before. Sharing
+        # the object rather than copying it also keeps a MultiLLMProvider
+        # retain chain intact — it is not a dataclass, so it cannot be
+        # rebuilt field-by-field the way a plain LLMConfig can.
+        vlm_config = retain_llm_config
+
+    # Reflect LLM config - for think/observe operations (can use lighter models)
+    reflect_provider = reflect_llm_provider or config.reflect_llm_provider or memory_llm_provider
+    reflect_api_key = reflect_llm_api_key or config.reflect_llm_api_key or memory_llm_api_key
+    reflect_model = reflect_llm_model or config.reflect_llm_model or memory_llm_model
+    reflect_base_url = reflect_llm_base_url or config.reflect_llm_base_url or memory_llm_base_url
+    # Apply provider-specific base URL defaults for reflect
+    if reflect_base_url is None:
+        if reflect_provider.lower() == "groq":
+            reflect_base_url = "https://api.groq.com/openai/v1"
+        elif reflect_provider.lower() == "ollama":
+            reflect_base_url = "http://localhost:11434/v1"
+        elif reflect_provider.lower() == "ollama-cloud":
+            reflect_base_url = "https://ollama.com/v1"
+        else:
+            reflect_base_url = ""
+
+    _reflect_base_llm = LLMConfig(
+        provider=reflect_provider,
+        api_key=reflect_api_key,
+        base_url=reflect_base_url,
+        model=reflect_model,
+        reasoning_effort=config.reflect_llm_reasoning_effort or config.llm_reasoning_effort,
+        extra_body=config.reflect_llm_extra_body or config.llm_extra_body,
+        default_headers=config.llm_default_headers,
+        cache_affinity=config.reflect_llm_cache_affinity or config.llm_cache_affinity,
+        ollama_num_ctx=config.llm_ollama_num_ctx,
+        litellmrouter_config=config.reflect_llm_litellmrouter_config or config.llm_litellmrouter_config,
+        bedrock_service_tier=config.llm_bedrock_service_tier,
+        structured_output_forced_tool=config.llm_structured_output_forced_tool,
+        gemini_service_tier=config.llm_gemini_service_tier,
+        groq_service_tier=config.llm_groq_service_tier,
+        openai_service_tier=config.llm_openai_service_tier,
+        gemini_safety_settings=_llm_gemini_safety_settings,
+        prompt_cache_enabled=config.llm_prompt_cache_enabled,
+        codex_home=config.llm_codex_home,
+        vertexai_project_id=config.llm_vertexai_project_id,
+        vertexai_region=config.llm_vertexai_region,
+        vertexai_service_account_key=config.llm_vertexai_service_account_key,
+        **reflect_call_defaults.as_kwargs(),
+    )
+    reflect_llm_config = _build_llm(_reflect_base_llm, config, "reflect_", reflect_call_defaults)
+
+    # Mental-model refresh LLM config - the automatic refresh runs the reflect
+    # pipeline in the background, where a human is not waiting and the job must
+    # not destabilise interactive latency. Unset means it *is* the reflect config
+    # (same object, so no extra provider, no extra verification), which is the
+    # backwards-compatible path (issue #4463).
+    # Only the timeout differs from reflect: see the property, which then still
+    # follows a reflect provider swapped in after __init__.
+    mental_model_refresh_llm_timeout_only = not config.has_mental_model_refresh_llm_override()
+    if mental_model_refresh_llm_timeout_only and not refresh_timeout_differs:
+        # None, not an alias to the reflect config: callers reassign
+        # ``_reflect_llm_config`` after __init__ (tests swapping in a real
+        # provider, most of all), and an alias captured here would keep
+        # pointing at the provider built at construction time. The property
+        # below resolves it on every access instead.
+        mental_model_refresh_llm_override = None
+    else:
+        refresh_provider = config.mental_model_refresh_llm_provider or reflect_provider
+        refresh_api_key = config.mental_model_refresh_llm_api_key or reflect_api_key
+        refresh_model = config.mental_model_refresh_llm_model or reflect_model
+        refresh_base_url = config.mental_model_refresh_llm_base_url
+        # Only re-derive the provider default when this group picked its own
+        # provider; otherwise it keeps reflect's already-resolved base URL.
+        if refresh_base_url is None:
+            if config.mental_model_refresh_llm_provider is None:
+                refresh_base_url = reflect_base_url
+            elif refresh_provider.lower() == "groq":
+                refresh_base_url = "https://api.groq.com/openai/v1"
+            elif refresh_provider.lower() == "ollama":
+                refresh_base_url = "http://localhost:11434/v1"
+            elif refresh_provider.lower() == "ollama-cloud":
+                refresh_base_url = "https://ollama.com/v1"
+            else:
+                refresh_base_url = ""
+
+        _mental_model_refresh_base_llm = LLMConfig(
+            provider=refresh_provider,
+            api_key=refresh_api_key,
+            base_url=refresh_base_url,
+            model=refresh_model,
+            reasoning_effort=(
+                config.mental_model_refresh_llm_reasoning_effort
+                or config.reflect_llm_reasoning_effort
+                or config.llm_reasoning_effort
+            ),
+            extra_body=(
+                config.mental_model_refresh_llm_extra_body or config.reflect_llm_extra_body or config.llm_extra_body
+            ),
+            default_headers=config.llm_default_headers,
+            cache_affinity=(
+                config.mental_model_refresh_llm_cache_affinity
+                or config.reflect_llm_cache_affinity
+                or config.llm_cache_affinity
+            ),
+            ollama_num_ctx=config.llm_ollama_num_ctx,
+            litellmrouter_config=(
+                config.mental_model_refresh_llm_litellmrouter_config
+                or config.reflect_llm_litellmrouter_config
+                or config.llm_litellmrouter_config
+            ),
+            bedrock_service_tier=config.llm_bedrock_service_tier,
+            structured_output_forced_tool=config.llm_structured_output_forced_tool,
+            gemini_service_tier=config.llm_gemini_service_tier,
+            groq_service_tier=config.llm_groq_service_tier,
+            openai_service_tier=config.llm_openai_service_tier,
+            gemini_safety_settings=_llm_gemini_safety_settings,
+            prompt_cache_enabled=config.llm_prompt_cache_enabled,
+            codex_home=config.llm_codex_home,
+            vertexai_project_id=config.llm_vertexai_project_id,
+            vertexai_region=config.llm_vertexai_region,
+            vertexai_service_account_key=config.llm_vertexai_service_account_key,
+            **mental_model_refresh_call_defaults.as_kwargs(),
+        )
+        mental_model_refresh_llm_override = _build_llm(
+            _mental_model_refresh_base_llm,
+            config,
+            "mental_model_refresh_",
+            mental_model_refresh_call_defaults,
+            fallback_prefix="reflect_",
+        )
+
+    # Consolidation LLM config - for mental model consolidation (can use efficient models)
+    consolidation_provider = consolidation_llm_provider or config.consolidation_llm_provider or memory_llm_provider
+    consolidation_api_key = consolidation_llm_api_key or config.consolidation_llm_api_key or memory_llm_api_key
+    consolidation_model = consolidation_llm_model or config.consolidation_llm_model or memory_llm_model
+    consolidation_base_url = consolidation_llm_base_url or config.consolidation_llm_base_url or memory_llm_base_url
+    # Apply provider-specific base URL defaults for consolidation
+    if consolidation_base_url is None:
+        if consolidation_provider.lower() == "groq":
+            consolidation_base_url = "https://api.groq.com/openai/v1"
+        elif consolidation_provider.lower() == "ollama":
+            consolidation_base_url = "http://localhost:11434/v1"
+        elif consolidation_provider.lower() == "ollama-cloud":
+            consolidation_base_url = "https://ollama.com/v1"
+        else:
+            consolidation_base_url = ""
+
+    _consolidation_base_llm = LLMConfig(
+        provider=consolidation_provider,
+        api_key=consolidation_api_key,
+        base_url=consolidation_base_url,
+        model=consolidation_model,
+        reasoning_effort=config.consolidation_llm_reasoning_effort or config.llm_reasoning_effort,
+        extra_body=config.consolidation_llm_extra_body or config.llm_extra_body,
+        default_headers=config.llm_default_headers,
+        cache_affinity=config.consolidation_llm_cache_affinity or config.llm_cache_affinity,
+        ollama_num_ctx=config.llm_ollama_num_ctx,
+        litellmrouter_config=config.consolidation_llm_litellmrouter_config or config.llm_litellmrouter_config,
+        bedrock_service_tier=config.llm_bedrock_service_tier,
+        structured_output_forced_tool=config.llm_structured_output_forced_tool,
+        gemini_service_tier=config.llm_gemini_service_tier,
+        groq_service_tier=config.llm_groq_service_tier,
+        openai_service_tier=config.llm_openai_service_tier,
+        gemini_safety_settings=_llm_gemini_safety_settings,
+        prompt_cache_enabled=config.llm_prompt_cache_enabled,
+        codex_home=config.llm_codex_home,
+        vertexai_project_id=config.llm_vertexai_project_id,
+        vertexai_region=config.llm_vertexai_region,
+        vertexai_service_account_key=config.llm_vertexai_service_account_key,
+        **consolidation_call_defaults.as_kwargs(),
+    )
+    consolidation_llm_config = _build_llm(
+        _consolidation_base_llm, config, "consolidation_", consolidation_call_defaults
+    )
+
+    return _LLMStack(
+        llm_config=llm_config,
+        llm_client=llm_client,
+        llm_model=llm_model_name,
+        retain_llm_config=retain_llm_config,
+        vlm_config=vlm_config,
+        reflect_llm_config=reflect_llm_config,
+        mental_model_refresh_llm_timeout_only=mental_model_refresh_llm_timeout_only,
+        mental_model_refresh_llm_override=mental_model_refresh_llm_override,
+        consolidation_llm_config=consolidation_llm_config,
+    )
+
+
 def _assemble_graph_data(
     units: list[dict[str, Any]],
     links: list[dict[str, Any]],
@@ -2888,13 +3337,6 @@ class MemoryEngine(MemoryEngineInterface):
         from ..config import _get_raw_config, get_config
 
         config = get_config()
-        # Gemini safety settings are bank-configurable, so the StaticConfigProxy from
-        # get_config() blocks reading them. The server-level default legitimately seeds
-        # each provider at construction (per-bank values are applied per-call via
-        # ConfiguredLLMProvider), so read it from the raw config. The other LLM fields
-        # below are static and safe to read off the proxy.
-        _llm_gemini_safety_settings = _get_raw_config().llm_gemini_safety_settings
-
         # Apply optimization flags from config if not explicitly provided
         self._skip_llm_verification = (
             skip_llm_verification if skip_llm_verification is not None else config.skip_llm_verification
@@ -2902,16 +3344,28 @@ class MemoryEngine(MemoryEngineInterface):
 
         # Apply defaults from config
         db_url = db_url or config.database_url
-        memory_llm_provider = memory_llm_provider or config.llm_provider
-
+        llm_overrides = _LLMOverrides(
+            memory_provider=memory_llm_provider,
+            memory_api_key=memory_llm_api_key,
+            memory_model=memory_llm_model,
+            memory_base_url=memory_llm_base_url,
+            retain_provider=retain_llm_provider,
+            retain_api_key=retain_llm_api_key,
+            retain_model=retain_llm_model,
+            retain_base_url=retain_llm_base_url,
+            reflect_provider=reflect_llm_provider,
+            reflect_api_key=reflect_llm_api_key,
+            reflect_model=reflect_llm_model,
+            reflect_base_url=reflect_llm_base_url,
+            consolidation_provider=consolidation_llm_provider,
+            consolidation_api_key=consolidation_llm_api_key,
+            consolidation_model=consolidation_llm_model,
+            consolidation_base_url=consolidation_llm_base_url,
+        )
+        # Resolved here too, ahead of everything else, so a missing key fails as early as it always did.
         # Force skip LLM verification when provider is "none" (no LLM to verify)
-        if memory_llm_provider == "none":
+        if _resolve_memory_llm(config, llm_overrides).provider == "none":
             self._skip_llm_verification = True
-        memory_llm_api_key = memory_llm_api_key or config.llm_api_key
-        if not memory_llm_api_key and requires_api_key(memory_llm_provider):
-            raise ValueError("LLM API key is required. Set HINDSIGHT_API_LLM_API_KEY environment variable.")
-        memory_llm_model = memory_llm_model or config.llm_model
-        memory_llm_base_url = memory_llm_base_url or config.get_llm_base_url() or None
         # Track pg0 instance (if used)
         self._pg0: EmbeddedPostgres | None = None
 
@@ -2929,17 +3383,6 @@ class MemoryEngine(MemoryEngineInterface):
             self.db_url = None
         else:
             self.db_url = db_url
-
-        # Set default base URL if not provided
-        if memory_llm_base_url is None:
-            if memory_llm_provider.lower() == "groq":
-                memory_llm_base_url = "https://api.groq.com/openai/v1"
-            elif memory_llm_provider.lower() == "ollama":
-                memory_llm_base_url = "http://localhost:11434/v1"
-            elif memory_llm_provider.lower() == "ollama-cloud":
-                memory_llm_base_url = "https://ollama.com/v1"
-            else:
-                memory_llm_base_url = ""
 
         # Database backend and SQL dialect (created during initialize())
         self._database_backend_type = config.database_backend
@@ -2989,339 +3432,10 @@ class MemoryEngine(MemoryEngineInterface):
 
             self.query_analyzer = DateparserQueryAnalyzer(languages=config.query_analyzer_languages)
 
-        # Resolve each operation's effective per-request defaults: a per-op override
-        # (``HINDSIGHT_API_RETAIN_LLM_TIMEOUT``, ``..._MAX_RETRIES``, ``..._INITIAL_BACKOFF``,
-        # ``..._MAX_BACKOFF``) wins, otherwise the global ``llm_*``. Threaded all the way
-        # into the provider so the configured value actually governs the call (issue #2452);
-        # previously these per-op fields were resolved into config but never reached the
-        # provider, which silently used the global/method default.
-        def _op_defaults(prefix: str, fallback: _LLMCallDefaults | None = None) -> _LLMCallDefaults:
-            def pick(field: str) -> Any:
-                per_op = getattr(config, f"{prefix}llm_{field}") if prefix else None
-                if per_op is not None:
-                    return per_op
-                # ``fallback`` is another operation's already-resolved defaults, for a
-                # group that inherits from a sibling rather than from the global one.
-                return getattr(fallback, field) if fallback is not None else getattr(config, f"llm_{field}")
-
-            return _LLMCallDefaults(
-                timeout=pick("timeout"),
-                max_retries=pick("max_retries"),
-                initial_backoff=pick("initial_backoff"),
-                max_backoff=pick("max_backoff"),
-            )
-
-        default_call_defaults = _op_defaults("")
-        retain_call_defaults = _op_defaults("retain_")
-        reflect_call_defaults = _op_defaults("reflect_")
-        consolidation_call_defaults = _op_defaults("consolidation_")
-        mental_model_refresh_call_defaults = _op_defaults("mental_model_refresh_", fallback=reflect_call_defaults)
-        # Refresh never inherits reflect's timeout. Reflect's is sized for a caller
-        # holding a request open (30s by default); a refresh runs in the background,
-        # and its final answer over a 30k-90k-token prompt cannot finish in 30s: it
-        # timed out on every retry and every tick (#4532). So refresh takes its own
-        # timeout, else the global LLM one, like the other background operations.
-        mental_model_refresh_call_defaults = replace(
-            mental_model_refresh_call_defaults,
-            timeout=config.mental_model_refresh_llm_timeout or config.llm_timeout,
-        )
-        refresh_timeout_differs = mental_model_refresh_call_defaults.timeout != reflect_call_defaults.timeout
-
-        # Initialize LLM configuration (default, used as fallback)
-        _default_base_llm = LLMConfig(
-            provider=memory_llm_provider,
-            api_key=memory_llm_api_key,
-            base_url=memory_llm_base_url,
-            model=memory_llm_model,
-            reasoning_effort=config.llm_reasoning_effort,
-            extra_body=config.llm_extra_body,
-            default_headers=config.llm_default_headers,
-            cache_affinity=config.llm_cache_affinity,
-            ollama_num_ctx=config.llm_ollama_num_ctx,
-            litellmrouter_config=config.llm_litellmrouter_config,
-            bedrock_service_tier=config.llm_bedrock_service_tier,
-            structured_output_forced_tool=config.llm_structured_output_forced_tool,
-            gemini_service_tier=config.llm_gemini_service_tier,
-            groq_service_tier=config.llm_groq_service_tier,
-            openai_service_tier=config.llm_openai_service_tier,
-            gemini_safety_settings=_llm_gemini_safety_settings,
-            prompt_cache_enabled=config.llm_prompt_cache_enabled,
-            codex_home=config.llm_codex_home,
-            vertexai_project_id=config.llm_vertexai_project_id,
-            vertexai_region=config.llm_vertexai_region,
-            vertexai_service_account_key=config.llm_vertexai_service_account_key,
-            **default_call_defaults.as_kwargs(),
-        )
-        self._llm_config = _build_llm(_default_base_llm, config, "", default_call_defaults)
-
-        # Store client and model for convenience (deprecated: use _llm_config.call() instead).
-        # Read from the primary member so a multi-LLM chain behaves like the base config here.
-        self._llm_client = _default_base_llm._client
-        self._llm_model = _default_base_llm.model
-
-        # Initialize per-operation LLM configs (fall back to default if not specified)
-        # Retain LLM config - for fact extraction (benefits from strong structured output)
-        retain_provider = retain_llm_provider or config.retain_llm_provider or memory_llm_provider
-        retain_api_key = retain_llm_api_key or config.retain_llm_api_key or memory_llm_api_key
-        retain_model = retain_llm_model or config.retain_llm_model or memory_llm_model
-        retain_base_url = retain_llm_base_url or config.retain_llm_base_url or memory_llm_base_url
-        # Apply provider-specific base URL defaults for retain
-        if retain_base_url is None:
-            if retain_provider.lower() == "groq":
-                retain_base_url = "https://api.groq.com/openai/v1"
-            elif retain_provider.lower() == "ollama":
-                retain_base_url = "http://localhost:11434/v1"
-            elif retain_provider.lower() == "ollama-cloud":
-                retain_base_url = "https://ollama.com/v1"
-            else:
-                retain_base_url = ""
-
-        _retain_base_llm = LLMConfig(
-            provider=retain_provider,
-            api_key=retain_api_key,
-            base_url=retain_base_url,
-            model=retain_model,
-            reasoning_effort=config.retain_llm_reasoning_effort or config.llm_reasoning_effort,
-            extra_body=config.retain_llm_extra_body or config.llm_extra_body,
-            default_headers=config.llm_default_headers,
-            cache_affinity=config.retain_llm_cache_affinity or config.llm_cache_affinity,
-            ollama_num_ctx=config.llm_ollama_num_ctx,
-            litellmrouter_config=config.retain_llm_litellmrouter_config or config.llm_litellmrouter_config,
-            bedrock_service_tier=config.llm_bedrock_service_tier,
-            structured_output_forced_tool=config.llm_structured_output_forced_tool,
-            gemini_service_tier=config.llm_gemini_service_tier,
-            groq_service_tier=config.llm_groq_service_tier,
-            openai_service_tier=config.llm_openai_service_tier,
-            gemini_safety_settings=_llm_gemini_safety_settings,
-            prompt_cache_enabled=config.llm_prompt_cache_enabled,
-            codex_home=config.llm_codex_home,
-            vertexai_project_id=config.llm_vertexai_project_id,
-            vertexai_region=config.llm_vertexai_region,
-            vertexai_service_account_key=config.llm_vertexai_service_account_key,
-            **retain_call_defaults.as_kwargs(),
-        )
-        self._retain_llm_config = _build_llm(_retain_base_llm, config, "retain_", retain_call_defaults)
-
-        # Vision slot. Extraction uses this only for a chunk that actually
-        # carries an attachment; every other chunk keeps using the retain LLM.
-        #
-        # Without it, one screenshot anywhere in a bank forced *every* retain
-        # call onto a vision-capable model, which is both slower and materially
-        # more expensive for the text-only chunks that are the vast majority.
-        if config.vlm_provider or config.vlm_model or config.vlm_api_key or config.vlm_base_url:
-            vlm_provider = config.vlm_provider or retain_provider
-            _vlm_base_llm = LLMConfig(
-                provider=vlm_provider,
-                api_key=config.vlm_api_key or retain_api_key,
-                # A base URL follows its own provider: naming a vlm_provider
-                # without a URL must resolve *that* provider's default, never
-                # inherit the retain provider's host — which would send the
-                # request to the wrong endpoint carrying the wrong key.
-                base_url=(
-                    config.vlm_base_url
-                    or (_provider_default_base_url(vlm_provider) if config.vlm_provider else retain_base_url)
-                ),
-                model=config.vlm_model or retain_model,
-                reasoning_effort=config.retain_llm_reasoning_effort or config.llm_reasoning_effort,
-                extra_body=config.retain_llm_extra_body or config.llm_extra_body,
-                default_headers=config.llm_default_headers,
-                cache_affinity=config.retain_llm_cache_affinity or config.llm_cache_affinity,
-                ollama_num_ctx=config.llm_ollama_num_ctx,
-                bedrock_service_tier=config.llm_bedrock_service_tier,
-                structured_output_forced_tool=config.llm_structured_output_forced_tool,
-                gemini_service_tier=config.llm_gemini_service_tier,
-                groq_service_tier=config.llm_groq_service_tier,
-                openai_service_tier=config.llm_openai_service_tier,
-                gemini_safety_settings=_llm_gemini_safety_settings,
-                prompt_cache_enabled=config.llm_prompt_cache_enabled,
-                codex_home=config.llm_codex_home,
-                vertexai_project_id=config.llm_vertexai_project_id,
-                vertexai_region=config.llm_vertexai_region,
-                vertexai_service_account_key=config.llm_vertexai_service_account_key,
-                **retain_call_defaults.as_kwargs(),
-            )
-            # Deliberately NOT run through `_build_llm`: that would make the
-            # vision model member 0 of the *retain* chain and append the retain
-            # fallbacks behind it. Those fallbacks are text models — the whole
-            # reason the operator configured a separate vision slot — so a failed
-            # vision call would quietly fail over to one, extract from the prose
-            # and drop the picture. That is the exact silent omission the 422
-            # gate exists to prevent, and it must not sneak back in as a
-            # fallback. A vision call that fails should fail.
-            self._vlm_config = _vlm_base_llm
-        else:
-            # Unset: attachments go to the retain LLM, exactly as before. Sharing
-            # the object rather than copying it also keeps a MultiLLMProvider
-            # retain chain intact — it is not a dataclass, so it cannot be
-            # rebuilt field-by-field the way a plain LLMConfig can.
-            self._vlm_config = self._retain_llm_config
-
-        # Reflect LLM config - for think/observe operations (can use lighter models)
-        reflect_provider = reflect_llm_provider or config.reflect_llm_provider or memory_llm_provider
-        reflect_api_key = reflect_llm_api_key or config.reflect_llm_api_key or memory_llm_api_key
-        reflect_model = reflect_llm_model or config.reflect_llm_model or memory_llm_model
-        reflect_base_url = reflect_llm_base_url or config.reflect_llm_base_url or memory_llm_base_url
-        # Apply provider-specific base URL defaults for reflect
-        if reflect_base_url is None:
-            if reflect_provider.lower() == "groq":
-                reflect_base_url = "https://api.groq.com/openai/v1"
-            elif reflect_provider.lower() == "ollama":
-                reflect_base_url = "http://localhost:11434/v1"
-            elif reflect_provider.lower() == "ollama-cloud":
-                reflect_base_url = "https://ollama.com/v1"
-            else:
-                reflect_base_url = ""
-
-        _reflect_base_llm = LLMConfig(
-            provider=reflect_provider,
-            api_key=reflect_api_key,
-            base_url=reflect_base_url,
-            model=reflect_model,
-            reasoning_effort=config.reflect_llm_reasoning_effort or config.llm_reasoning_effort,
-            extra_body=config.reflect_llm_extra_body or config.llm_extra_body,
-            default_headers=config.llm_default_headers,
-            cache_affinity=config.reflect_llm_cache_affinity or config.llm_cache_affinity,
-            ollama_num_ctx=config.llm_ollama_num_ctx,
-            litellmrouter_config=config.reflect_llm_litellmrouter_config or config.llm_litellmrouter_config,
-            bedrock_service_tier=config.llm_bedrock_service_tier,
-            structured_output_forced_tool=config.llm_structured_output_forced_tool,
-            gemini_service_tier=config.llm_gemini_service_tier,
-            groq_service_tier=config.llm_groq_service_tier,
-            openai_service_tier=config.llm_openai_service_tier,
-            gemini_safety_settings=_llm_gemini_safety_settings,
-            prompt_cache_enabled=config.llm_prompt_cache_enabled,
-            codex_home=config.llm_codex_home,
-            vertexai_project_id=config.llm_vertexai_project_id,
-            vertexai_region=config.llm_vertexai_region,
-            vertexai_service_account_key=config.llm_vertexai_service_account_key,
-            **reflect_call_defaults.as_kwargs(),
-        )
-        self._reflect_llm_config = _build_llm(_reflect_base_llm, config, "reflect_", reflect_call_defaults)
-        self._reflect_llm_config_at_init = self._reflect_llm_config
-
-        # Mental-model refresh LLM config - the automatic refresh runs the reflect
-        # pipeline in the background, where a human is not waiting and the job must
-        # not destabilise interactive latency. Unset means it *is* the reflect config
-        # (same object, so no extra provider, no extra verification), which is the
-        # backwards-compatible path (issue #4463).
-        # Only the timeout differs from reflect: see the property, which then still
-        # follows a reflect provider swapped in after __init__.
-        self._mental_model_refresh_llm_timeout_only = not config.has_mental_model_refresh_llm_override()
-        if self._mental_model_refresh_llm_timeout_only and not refresh_timeout_differs:
-            # None, not an alias to the reflect config: callers reassign
-            # ``_reflect_llm_config`` after __init__ (tests swapping in a real
-            # provider, most of all), and an alias captured here would keep
-            # pointing at the provider built at construction time. The property
-            # below resolves it on every access instead.
-            self._mental_model_refresh_llm_override = None
-        else:
-            refresh_provider = config.mental_model_refresh_llm_provider or reflect_provider
-            refresh_api_key = config.mental_model_refresh_llm_api_key or reflect_api_key
-            refresh_model = config.mental_model_refresh_llm_model or reflect_model
-            refresh_base_url = config.mental_model_refresh_llm_base_url
-            # Only re-derive the provider default when this group picked its own
-            # provider; otherwise it keeps reflect's already-resolved base URL.
-            if refresh_base_url is None:
-                if config.mental_model_refresh_llm_provider is None:
-                    refresh_base_url = reflect_base_url
-                elif refresh_provider.lower() == "groq":
-                    refresh_base_url = "https://api.groq.com/openai/v1"
-                elif refresh_provider.lower() == "ollama":
-                    refresh_base_url = "http://localhost:11434/v1"
-                elif refresh_provider.lower() == "ollama-cloud":
-                    refresh_base_url = "https://ollama.com/v1"
-                else:
-                    refresh_base_url = ""
-
-            _mental_model_refresh_base_llm = LLMConfig(
-                provider=refresh_provider,
-                api_key=refresh_api_key,
-                base_url=refresh_base_url,
-                model=refresh_model,
-                reasoning_effort=(
-                    config.mental_model_refresh_llm_reasoning_effort
-                    or config.reflect_llm_reasoning_effort
-                    or config.llm_reasoning_effort
-                ),
-                extra_body=(
-                    config.mental_model_refresh_llm_extra_body or config.reflect_llm_extra_body or config.llm_extra_body
-                ),
-                default_headers=config.llm_default_headers,
-                cache_affinity=(
-                    config.mental_model_refresh_llm_cache_affinity
-                    or config.reflect_llm_cache_affinity
-                    or config.llm_cache_affinity
-                ),
-                ollama_num_ctx=config.llm_ollama_num_ctx,
-                litellmrouter_config=(
-                    config.mental_model_refresh_llm_litellmrouter_config
-                    or config.reflect_llm_litellmrouter_config
-                    or config.llm_litellmrouter_config
-                ),
-                bedrock_service_tier=config.llm_bedrock_service_tier,
-                structured_output_forced_tool=config.llm_structured_output_forced_tool,
-                gemini_service_tier=config.llm_gemini_service_tier,
-                groq_service_tier=config.llm_groq_service_tier,
-                openai_service_tier=config.llm_openai_service_tier,
-                gemini_safety_settings=_llm_gemini_safety_settings,
-                prompt_cache_enabled=config.llm_prompt_cache_enabled,
-                codex_home=config.llm_codex_home,
-                vertexai_project_id=config.llm_vertexai_project_id,
-                vertexai_region=config.llm_vertexai_region,
-                vertexai_service_account_key=config.llm_vertexai_service_account_key,
-                **mental_model_refresh_call_defaults.as_kwargs(),
-            )
-            self._mental_model_refresh_llm_override = _build_llm(
-                _mental_model_refresh_base_llm,
-                config,
-                "mental_model_refresh_",
-                mental_model_refresh_call_defaults,
-                fallback_prefix="reflect_",
-            )
-
-        # Consolidation LLM config - for mental model consolidation (can use efficient models)
-        consolidation_provider = consolidation_llm_provider or config.consolidation_llm_provider or memory_llm_provider
-        consolidation_api_key = consolidation_llm_api_key or config.consolidation_llm_api_key or memory_llm_api_key
-        consolidation_model = consolidation_llm_model or config.consolidation_llm_model or memory_llm_model
-        consolidation_base_url = consolidation_llm_base_url or config.consolidation_llm_base_url or memory_llm_base_url
-        # Apply provider-specific base URL defaults for consolidation
-        if consolidation_base_url is None:
-            if consolidation_provider.lower() == "groq":
-                consolidation_base_url = "https://api.groq.com/openai/v1"
-            elif consolidation_provider.lower() == "ollama":
-                consolidation_base_url = "http://localhost:11434/v1"
-            elif consolidation_provider.lower() == "ollama-cloud":
-                consolidation_base_url = "https://ollama.com/v1"
-            else:
-                consolidation_base_url = ""
-
-        _consolidation_base_llm = LLMConfig(
-            provider=consolidation_provider,
-            api_key=consolidation_api_key,
-            base_url=consolidation_base_url,
-            model=consolidation_model,
-            reasoning_effort=config.consolidation_llm_reasoning_effort or config.llm_reasoning_effort,
-            extra_body=config.consolidation_llm_extra_body or config.llm_extra_body,
-            default_headers=config.llm_default_headers,
-            cache_affinity=config.consolidation_llm_cache_affinity or config.llm_cache_affinity,
-            ollama_num_ctx=config.llm_ollama_num_ctx,
-            litellmrouter_config=config.consolidation_llm_litellmrouter_config or config.llm_litellmrouter_config,
-            bedrock_service_tier=config.llm_bedrock_service_tier,
-            structured_output_forced_tool=config.llm_structured_output_forced_tool,
-            gemini_service_tier=config.llm_gemini_service_tier,
-            groq_service_tier=config.llm_groq_service_tier,
-            openai_service_tier=config.llm_openai_service_tier,
-            gemini_safety_settings=_llm_gemini_safety_settings,
-            prompt_cache_enabled=config.llm_prompt_cache_enabled,
-            codex_home=config.llm_codex_home,
-            vertexai_project_id=config.llm_vertexai_project_id,
-            vertexai_region=config.llm_vertexai_region,
-            vertexai_service_account_key=config.llm_vertexai_service_account_key,
-            **consolidation_call_defaults.as_kwargs(),
-        )
-        self._consolidation_llm_config = _build_llm(
-            _consolidation_base_llm, config, "consolidation_", consolidation_call_defaults
-        )
+        self._llm_overrides = llm_overrides
+        self._llm_reload_lock = asyncio.Lock()
+        self._llm_cleanup_tasks: set[asyncio.Task[None]] = set()
+        self._install_llm_stack(_build_llm_stack(config, llm_overrides))
 
         # Initialize cross-encoder reranker (cached for performance)
         self._cross_encoder_reranker = CrossEncoderReranker(cross_encoder=cross_encoder)
@@ -6703,17 +6817,7 @@ class MemoryEngine(MemoryEngineInterface):
         self._initialized = False
 
         # Clean up LLM providers (e.g. stop llamacpp subprocess)
-        _to_clean = [
-            self._llm_config,
-            self._retain_llm_config,
-            self._reflect_llm_config,
-            self._consolidation_llm_config,
-        ]
-        # Only a separate provider when the MENTAL_MODEL_REFRESH_LLM_* group is
-        # configured; otherwise the refresh shares reflect's, already in the list.
-        if self._mental_model_refresh_llm_override is not None:
-            _to_clean.append(self._mental_model_refresh_llm_override)
-        for llm_config in _to_clean:
+        for llm_config in self._llm_clients():
             try:
                 await llm_config.cleanup()
             except Exception as e:
@@ -16960,6 +17064,91 @@ class MemoryEngine(MemoryEngineInterface):
             # category leaks nothing — the raw error is only logged above).
             status = "auth_failed" if _is_auth_error(e) else "unreachable"
             return _LlmProbeOutcome(ok=False, status=status, latency_ms=(time.monotonic() - start) * 1000)
+
+    def _llm_clients(self) -> list["LLMConfig | MultiLLMProvider"]:
+        """The LLM clients this engine runs on, each once."""
+        clients = [
+            self._llm_config,
+            self._retain_llm_config,
+            self._reflect_llm_config,
+            self._consolidation_llm_config,
+        ]
+        # Only a separate provider when the MENTAL_MODEL_REFRESH_LLM_* group is
+        # configured; otherwise the refresh shares reflect's, already in the list.
+        if self._mental_model_refresh_llm_override is not None:
+            clients.append(self._mental_model_refresh_llm_override)
+        return clients
+
+    def _install_llm_stack(self, stack: _LLMStack) -> None:
+        """Make ``stack`` the clients every operation uses. Synchronous, so no request sees half of it."""
+        self._llm_config = stack.llm_config
+        # Deprecated: use _llm_config.call() instead.
+        self._llm_client = stack.llm_client
+        self._llm_model = stack.llm_model
+        self._retain_llm_config = stack.retain_llm_config
+        self._vlm_config = stack.vlm_config
+        self._reflect_llm_config = stack.reflect_llm_config
+        self._reflect_llm_config_at_init = stack.reflect_llm_config
+        self._mental_model_refresh_llm_timeout_only = stack.mental_model_refresh_llm_timeout_only
+        self._mental_model_refresh_llm_override = stack.mental_model_refresh_llm_override
+        self._consolidation_llm_config = stack.consolidation_llm_config
+
+    async def reload_llm_settings(self) -> None:
+        """Rebuild the LLM clients from the settings now in effect, so a change applies without a restart.
+
+        The caller has already saved the new settings. The default LLM is probed first and nothing is
+        swapped if it does not answer (raises :class:`LLMSettingsRejected`), so a mistyped URL or key
+        cannot take every operation down. New requests then use the new clients; ones already running
+        keep the old until they finish, and the old are closed after a grace period.
+        """
+        from ..config import clear_config_cache, get_config
+
+        async with self._llm_reload_lock:
+            clear_config_cache()
+            config = get_config()
+            try:
+                stack = _build_llm_stack(config, self._llm_overrides)
+            except ValueError as e:
+                # A provider that needs a key and was given none (a new endpoint never inherits the old key).
+                logger.warning("New LLM settings rejected: %s", e)
+                raise LLMSettingsRejected("missing_api_key") from e
+            if not self._skip_llm_verification and stack.llm_config.provider != "none":
+                outcome = await self._probe_llm(stack.llm_config)
+                if not outcome.ok:
+                    await stack.llm_config.cleanup()
+                    raise LLMSettingsRejected(outcome.status)
+
+            retired = self._llm_clients()
+            self._install_llm_stack(stack)
+            resolver = getattr(self, "_config_resolver", None)
+            if resolver is not None:
+                resolver.refresh_global_config()
+
+            task = asyncio.create_task(self._close_llm_clients_later(retired, config.llm_timeout * 2))
+            self._llm_cleanup_tasks.add(task)
+            task.add_done_callback(self._llm_cleanup_tasks.discard)
+
+    @staticmethod
+    async def _close_llm_clients_later(clients: list["LLMConfig | MultiLLMProvider"], grace_seconds: float) -> None:
+        await asyncio.sleep(max(grace_seconds, 60.0))
+        for client in clients:
+            try:
+                await client.cleanup()
+            except Exception as e:
+                logger.warning(f"Error cleaning up replaced LLM provider: {e}")
+
+    async def probe_llm_connection(
+        self, *, provider: str, model: str, base_url: str | None, api_key: str | None
+    ) -> _LlmProbeOutcome:
+        """Probe one LLM connection that is not (yet) the one this engine runs, e.g. a candidate from settings."""
+        if not api_key and requires_api_key(provider):
+            return _LlmProbeOutcome(ok=False, status="missing_api_key", latency_ms=None)
+        llm = LLMConfig(provider=provider, api_key=api_key or "", base_url=base_url or "", model=model)
+        try:
+            return await self._probe_llm(llm)
+        finally:
+            # Built for this one call: release its client (and, for llamacpp, its subprocess) now.
+            await llm.cleanup()
 
     async def check_bank_llm(
         self,

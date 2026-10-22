@@ -236,6 +236,9 @@ EXPOSE 8888
 
 ENV HINDSIGHT_API_HOST=0.0.0.0
 ENV HINDSIGHT_API_PORT=8888
+# Settings saved from the control plane (LLM connection, API key, page login) go next to the embedded
+# database, in the volume the recommended `docker run` already mounts, so they survive a recreated container.
+ENV HINDSIGHT_API_SETTINGS_FILE=/home/hindsight/.pg0/settings.json
 ENV HINDSIGHT_API_LOG_LEVEL=info
 ENV HINDSIGHT_ENABLE_API=true
 ENV HINDSIGHT_ENABLE_CP=false
@@ -417,6 +420,9 @@ EXPOSE 8888 9999
 
 ENV HINDSIGHT_API_HOST=0.0.0.0
 ENV HINDSIGHT_API_PORT=8888
+# Settings saved from the control plane (LLM connection, API key, page login) go next to the embedded
+# database, in the volume the recommended `docker run` already mounts, so they survive a recreated container.
+ENV HINDSIGHT_API_SETTINGS_FILE=/home/hindsight/.pg0/settings.json
 ENV HINDSIGHT_API_LOG_LEVEL=info
 ENV NODE_ENV=production
 ENV HINDSIGHT_CP_DATAPLANE_API_URL=http://localhost:8888

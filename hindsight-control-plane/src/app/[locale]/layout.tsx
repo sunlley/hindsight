@@ -6,6 +6,7 @@ import { routing } from "@/i18n/routing";
 import { BankProvider } from "@/lib/bank-context";
 import { FeaturesProvider } from "@/lib/features-context";
 import { ThemeProvider } from "@/lib/theme-context";
+import { ApiKeyGate } from "@/components/api-key-gate";
 import { Toaster } from "@/components/ui/sonner";
 
 // Inter preloaded server-side so every weight (400/500/600/700) is ready
@@ -70,7 +71,10 @@ export default async function LocaleLayout({
         <ThemeProvider>
           <FeaturesProvider>
             <BankProvider>
-              <NextIntlClientProvider>{children}</NextIntlClientProvider>
+              <NextIntlClientProvider>
+                {children}
+                <ApiKeyGate />
+              </NextIntlClientProvider>
             </BankProvider>
           </FeaturesProvider>
         </ThemeProvider>

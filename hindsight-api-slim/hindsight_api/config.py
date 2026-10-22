@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from ._pg_search import normalize_pg_search_tokenizer
 from ._vector_index import validate_extension
+from .global_settings import GlobalLLMSettings, load_global_settings
 from .utils import mask_network_location
 
 logger = logging.getLogger(__name__)
@@ -775,6 +776,7 @@ ENV_MCP_INSTRUCTIONS = "HINDSIGHT_API_MCP_INSTRUCTIONS"
 ENV_MCP_AUTH_TOKEN = "HINDSIGHT_API_MCP_AUTH_TOKEN"
 ENV_ENABLE_BANK_CONFIG_API = "HINDSIGHT_API_ENABLE_BANK_CONFIG_API"
 ENV_ENABLE_BANK_LLM_HEALTH = "HINDSIGHT_API_ENABLE_BANK_LLM_HEALTH"
+ENV_ENABLE_GLOBAL_SETTINGS_API = "HINDSIGHT_API_ENABLE_GLOBAL_SETTINGS_API"
 ENV_ENABLE_DRY_RUN_EXTRACT = "HINDSIGHT_API_ENABLE_DRY_RUN_EXTRACT"
 ENV_DEFAULT_BANK_TEMPLATE = "HINDSIGHT_API_DEFAULT_BANK_TEMPLATE"
 ENV_GRAPH_RETRIEVER = "HINDSIGHT_API_GRAPH_RETRIEVER"
@@ -1700,6 +1702,9 @@ DEFAULT_ENABLE_DRY_RUN_EXTRACT = True
 # The per-bank LLM connectivity probe makes a real provider call, so it's OFF by
 # default (cost/abuse concerns) and must be explicitly enabled to expose the endpoint.
 DEFAULT_ENABLE_BANK_LLM_HEALTH = False
+# The global settings API rewrites server-wide LLM provider/model and the API has no admin role,
+# so it is OFF by default and must be explicitly enabled.
+DEFAULT_ENABLE_GLOBAL_SETTINGS_API = False
 DEFAULT_DEFAULT_BANK_TEMPLATE: dict | None = None  # BankTemplateManifest dict applied to newly-created banks
 DEFAULT_GRAPH_RETRIEVER = "link_expansion"
 DEFAULT_RECALL_MAX_CONCURRENT = 32  # Max concurrent recall operations per worker
@@ -2562,6 +2567,43 @@ def _parse_bank_priority(raw: str) -> dict[str, int]:
 def _get_default_model_for_provider(provider: str) -> str:
     """Get the default model for a given provider."""
     return PROVIDER_DEFAULT_MODELS.get(provider.lower(), DEFAULT_LLM_MODEL)
+
+
+@dataclass(frozen=True)
+class LLMConnection:
+    """The global LLM connection the server resolves to: provider, model, endpoint and key."""
+
+    provider: str
+    model: str
+    base_url: str | None
+    api_key: str | None
+
+
+def resolve_llm_connection(saved: "GlobalLLMSettings | None" = None) -> LLMConnection:
+    """Overlay the settings saved from the control plane on the environment.
+
+    Saved values win. Values the saved settings leave unset are inherited from the environment only
+    while the provider stays the same: a model, URL or key written for another provider would be wrong
+    for the new one. The environment's key is inherited only while the endpoint is the environment's too:
+    otherwise anyone who may edit the settings could point the URL at a host of their own and have the
+    server send it the key.
+    """
+    saved = saved if saved is not None else load_global_settings().llm
+    env_provider = os.getenv(ENV_LLM_PROVIDER, DEFAULT_LLM_PROVIDER)
+    provider = saved.provider or env_provider
+    inherit_env = provider == env_provider
+
+    def pick(value: str | None, env_name: str) -> str | None:
+        return value or (os.getenv(env_name) or None if inherit_env else None)
+
+    base_url = pick(saved.base_url, ENV_LLM_BASE_URL)
+    same_endpoint = inherit_env and base_url == (os.getenv(ENV_LLM_BASE_URL) or None)
+    return LLMConnection(
+        provider=provider,
+        model=pick(saved.model, ENV_LLM_MODEL) or _get_default_model_for_provider(provider),
+        base_url=base_url,
+        api_key=saved.api_key or ((os.getenv(ENV_LLM_API_KEY) or None) if same_endpoint else None),
+    )
 
 
 def _resolve_reflect_llm_timeout() -> float | None:
@@ -3620,6 +3662,7 @@ class HindsightConfig:
     mcp_instructions: str | None  # Additional instructions appended to retain/recall MCP tool descriptions
     enable_bank_config_api: bool
     enable_bank_llm_health: bool
+    enable_global_settings_api: bool
     enable_dry_run_extract: bool
     # Default bank template (static, server-level only). When set, the manifest is applied
     # to every newly-created bank, overriding the env/config defaults for any fields it sets.
@@ -4513,8 +4556,9 @@ class HindsightConfig:
     def from_env(cls) -> "HindsightConfig":
         """Create configuration from environment variables."""
         # Get provider first to determine default model
-        llm_provider = os.getenv(ENV_LLM_PROVIDER, DEFAULT_LLM_PROVIDER)
-        llm_model = os.getenv(ENV_LLM_MODEL) or _get_default_model_for_provider(llm_provider)
+        # Values saved from the control plane win over the environment (applied on save, or at startup).
+        llm = resolve_llm_connection()
+        llm_provider = llm.provider
 
         # Parse per-type worker slot reservations (floors) once.
         worker_slot_reservations = _parse_worker_slot_reservations()
@@ -4564,9 +4608,9 @@ class HindsightConfig:
             llm_output_language=(os.getenv(ENV_LLM_OUTPUT_LANGUAGE) or None),
             # LLM
             llm_provider=llm_provider,
-            llm_api_key=os.getenv(ENV_LLM_API_KEY),
-            llm_model=llm_model,
-            llm_base_url=os.getenv(ENV_LLM_BASE_URL) or None,
+            llm_api_key=llm.api_key,
+            llm_model=llm.model,
+            llm_base_url=llm.base_url,
             llm_max_concurrent=int(os.getenv(ENV_LLM_MAX_CONCURRENT, str(DEFAULT_LLM_MAX_CONCURRENT))),
             llm_max_retries=int(os.getenv(ENV_LLM_MAX_RETRIES, str(DEFAULT_LLM_MAX_RETRIES))),
             llm_initial_backoff=float(os.getenv(ENV_LLM_INITIAL_BACKOFF, str(DEFAULT_LLM_INITIAL_BACKOFF))),
@@ -5204,6 +5248,10 @@ class HindsightConfig:
             mcp_stateless=os.getenv(ENV_MCP_STATELESS, str(DEFAULT_MCP_STATELESS)).lower() == "true",
             mcp_instructions=os.getenv(ENV_MCP_INSTRUCTIONS) or DEFAULT_MCP_INSTRUCTIONS,
             enable_bank_llm_health=os.getenv(ENV_ENABLE_BANK_LLM_HEALTH, str(DEFAULT_ENABLE_BANK_LLM_HEALTH)).lower()
+            == "true",
+            enable_global_settings_api=os.getenv(
+                ENV_ENABLE_GLOBAL_SETTINGS_API, str(DEFAULT_ENABLE_GLOBAL_SETTINGS_API)
+            ).lower()
             == "true",
             enable_bank_config_api=os.getenv(ENV_ENABLE_BANK_CONFIG_API, str(DEFAULT_ENABLE_BANK_CONFIG_API)).lower()
             == "true",

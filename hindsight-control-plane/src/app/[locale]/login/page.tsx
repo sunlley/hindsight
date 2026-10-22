@@ -13,6 +13,10 @@ import Image from "next/image";
 function LoginForm() {
   const t = useTranslations("login");
   const [key, setKey] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  // "account": username and password (set up on the Settings page); otherwise the access key.
+  const [mode, setMode] = useState<"account" | "key" | "none" | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -22,10 +26,16 @@ function LoginForm() {
   const returnTo = sanitizeReturnTo(searchParams.get("returnTo"));
 
   useEffect(() => {
-    // Focus the input on mount
-    const input = document.getElementById("access-key");
-    input?.focus();
+    fetch(withBasePath("/api/auth/mode"))
+      .then((res) => res.json())
+      .then((body: { mode: "account" | "key" | "none" }) => setMode(body.mode))
+      .catch(() => setMode("key"));
   }, []);
+
+  useEffect(() => {
+    // Focus the first field once the form for this mode is on screen
+    document.getElementById(mode === "account" ? "login-username" : "access-key")?.focus();
+  }, [mode]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -36,7 +46,7 @@ function LoginForm() {
       const res = await fetch(withBasePath("/api/auth/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key }),
+        body: JSON.stringify(mode === "account" ? { username, password } : { key }),
       });
 
       if (res.ok) {
@@ -45,7 +55,7 @@ function LoginForm() {
         router.refresh();
       } else {
         const data = await res.json().catch(() => null);
-        setError(data?.error || t("invalidKey"));
+        setError(data?.error || (mode === "account" ? t("invalidCredentials") : t("invalidKey")));
       }
     } catch {
       setError(t("connectFailed"));
@@ -69,24 +79,50 @@ function LoginForm() {
             className="mx-auto"
             unoptimized
           />
-          <CardDescription>{t("description")}</CardDescription>
+          <CardDescription>
+            {mode === "account" ? t("accountDescription") : t("description")}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <Input
-                id="access-key"
-                type="password"
-                placeholder={t("accessKeyPlaceholder")}
-                value={key}
-                onChange={(e) => setKey(e.target.value)}
-                autoComplete="off"
-              />
-            </div>
+            {mode === "account" ? (
+              <>
+                <Input
+                  id="login-username"
+                  placeholder={t("usernamePlaceholder")}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoComplete="username"
+                />
+                <Input
+                  id="login-password"
+                  type="password"
+                  placeholder={t("passwordPlaceholder")}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                />
+              </>
+            ) : (
+              <div>
+                <Input
+                  id="access-key"
+                  type="password"
+                  placeholder={t("accessKeyPlaceholder")}
+                  value={key}
+                  onChange={(e) => setKey(e.target.value)}
+                  autoComplete="off"
+                />
+              </div>
+            )}
 
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
-            <Button type="submit" className="w-full" disabled={loading || !key}>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={loading || (mode === "account" ? !username || !password : !key)}
+            >
               {loading ? t("signingIn") : t("signIn")}
             </Button>
           </form>

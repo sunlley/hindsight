@@ -25,6 +25,58 @@ export type AddBackgroundRequest = {
 };
 
 /**
+ * ApiAuthSettingsResponse
+ *
+ * API authorization state. Never includes the key itself.
+ */
+export type ApiAuthSettingsResponse = {
+  /**
+   * Enabled
+   *
+   * Whether callers must send an API key
+   */
+  enabled: boolean;
+  /**
+   * Api Key Hint
+   *
+   * Last characters of the key, for recognising it
+   */
+  api_key_hint: string | null;
+  /**
+   * Managed By Extension
+   *
+   * True when a tenant extension handles authentication, so it cannot be changed here
+   */
+  managed_by_extension: boolean;
+  /**
+   * Admin Username
+   *
+   * The account the control plane page asks for, or null when the page needs no login
+   */
+  admin_username?: string | null;
+};
+
+/**
+ * ApiAuthSettingsUpdate
+ *
+ * Turn API key authorization on or off. ``api_key`` is write-only: omit it to keep the saved key.
+ */
+export type ApiAuthSettingsUpdate = {
+  /**
+   * Enabled
+   *
+   * Whether callers must send an API key
+   */
+  enabled: boolean;
+  /**
+   * Api Key
+   *
+   * The key callers must send as 'Authorization: Bearer <key>'; at least 16 characters
+   */
+  api_key?: string | null;
+};
+
+/**
  * AsyncOperationSubmitResponse
  *
  * Response model for submitting an async operation.
@@ -218,6 +270,18 @@ export type AuditLogSummary = {
   metadata: {
     [key: string]: unknown;
   };
+};
+
+/**
+ * AuthStatusResponse
+ */
+export type AuthStatusResponse = {
+  /**
+   * Login Required
+   *
+   * Whether the control plane page asks for a username and password
+   */
+  login_required: boolean;
 };
 
 /**
@@ -2916,6 +2980,12 @@ export type FeaturesInfo = {
    */
   bank_llm_health: boolean;
   /**
+   * Global Settings Api
+   *
+   * Whether the global settings API (LLM connection, API key, page login) is enabled
+   */
+  global_settings_api?: boolean;
+  /**
    * File Upload Api
    *
    * Whether file upload/conversion API is enabled
@@ -2987,6 +3057,167 @@ export type FileRetainResponse = {
    * Operation IDs for tracking file conversion operations. Use GET /v1/default/banks/{bank_id}/operations to list operations.
    */
   operation_ids: Array<string>;
+};
+
+/**
+ * GlobalLLMModelsResponse
+ *
+ * Models the endpoint offers. Status only on failure, never the raw error.
+ */
+export type GlobalLlmModelsResponse = {
+  /**
+   * Status
+   *
+   * 'listed', 'auth_failed', 'unreachable', 'timeout', 'unsupported' (this provider has no model list, or needs a base URL first) or 'invalid_response'
+   */
+  status: string;
+  /**
+   * Models
+   *
+   * Model ids, sorted
+   */
+  models: Array<string>;
+};
+
+/**
+ * GlobalLLMSettingsResponse
+ *
+ * Global LLM connection. Never includes the API key itself.
+ */
+export type GlobalLlmSettingsResponse = {
+  /**
+   * Effective Provider
+   *
+   * Provider the running server is using
+   */
+  effective_provider: string;
+  /**
+   * Effective Model
+   *
+   * Model the running server is using
+   */
+  effective_model: string;
+  /**
+   * Effective Base Url
+   *
+   * Endpoint the running server is using
+   */
+  effective_base_url: string | null;
+  /**
+   * Server Started At
+   *
+   * When this server process started; changes after a restart
+   */
+  server_started_at: string;
+  /**
+   * Effective Api Key Set
+   *
+   * Whether the running server has an API key
+   */
+  effective_api_key_set: boolean;
+  /**
+   * Effective Api Key Hint
+   *
+   * Last characters of the running server's API key
+   */
+  effective_api_key_hint: string | null;
+  /**
+   * Provider
+   *
+   * Provider the server will use after the next restart
+   */
+  provider: string;
+  /**
+   * Model
+   *
+   * Model the server will use after the next restart
+   */
+  model: string;
+  /**
+   * Base Url
+   *
+   * Endpoint the server will use after the next restart
+   */
+  base_url: string | null;
+  /**
+   * Api Key Set
+   *
+   * Whether an API key is configured (saved or from the environment)
+   */
+  api_key_set: boolean;
+  /**
+   * Api Key Hint
+   *
+   * Last characters of the API key, for recognising it
+   */
+  api_key_hint: string | null;
+  /**
+   * Restart Required
+   *
+   * True when the settings differ from what the server is running
+   */
+  restart_required: boolean;
+};
+
+/**
+ * GlobalLLMSettingsUpdate
+ *
+ * The global LLM connection to save (or to test). Blank optional fields clear the saved value, so
+ * the environment applies again. ``api_key`` is write-only: omit it to keep the saved key.
+ */
+export type GlobalLlmSettingsUpdate = {
+  /**
+   * Provider
+   *
+   * API compatibility type / provider, e.g. 'openai' (any OpenAI-compatible endpoint), 'anthropic'
+   */
+  provider: string;
+  /**
+   * Model
+   *
+   * Model name; blank uses the provider default
+   */
+  model?: string | null;
+  /**
+   * Base Url
+   *
+   * Endpoint URL
+   */
+  base_url?: string | null;
+  /**
+   * Api Key
+   *
+   * API key; omit to keep the saved key
+   */
+  api_key?: string | null;
+  /**
+   * Clear Api Key
+   *
+   * Remove the saved API key
+   */
+  clear_api_key?: boolean;
+};
+
+/**
+ * GlobalLLMTestResponse
+ *
+ * Result of one minimal call against the LLM connection being edited. Status only, never the raw error.
+ */
+export type GlobalLlmTestResponse = {
+  /**
+   * Ok
+   */
+  ok: boolean;
+  /**
+   * Status
+   *
+   * 'connected', 'not_configured', 'missing_api_key', 'auth_failed', 'unreachable' or 'timeout'
+   */
+  status: string;
+  /**
+   * Latency Ms
+   */
+  latency_ms?: number | null;
 };
 
 /**
@@ -3766,6 +3997,44 @@ export type LlmOperationHealth = {
    * Round-trip latency of the probe call
    */
   latency_ms?: number | null;
+};
+
+/**
+ * LoginRequest
+ */
+export type LoginRequest = {
+  /**
+   * Username
+   */
+  username: string;
+  /**
+   * Password
+   */
+  password: string;
+};
+
+/**
+ * LoginResponse
+ */
+export type LoginResponse = {
+  /**
+   * Session Token
+   *
+   * Signed, expiring token for the control plane's session cookie
+   */
+  session_token: string;
+  /**
+   * Expires At
+   *
+   * When the session ends
+   */
+  expires_at: string;
+  /**
+   * Api Key
+   *
+   * The API key, for the control plane to use on this user's behalf. Null when the API is open.
+   */
+  api_key: string | null;
 };
 
 /**
@@ -5538,6 +5807,22 @@ export type OperationsListResponse = {
 };
 
 /**
+ * PageLoginUpdate
+ *
+ * The one account that signs in to the control plane page.
+ */
+export type PageLoginUpdate = {
+  /**
+   * Username
+   */
+  username: string;
+  /**
+   * Password
+   */
+  password: string;
+};
+
+/**
  * PromptBlockModel
  *
  * One block of a message: its text, and the setting that decides it.
@@ -6532,6 +6817,28 @@ export type RunSettingModel = {
    * Whether this bank may override the field via the bank config API.
    */
   editable?: boolean;
+};
+
+/**
+ * ServerRestartResponse
+ */
+export type ServerRestartResponse = {
+  /**
+   * Restarting
+   *
+   * True once the server has scheduled its own shutdown
+   */
+  restarting: boolean;
+};
+
+/**
+ * SessionResponse
+ */
+export type SessionResponse = {
+  /**
+   * Username
+   */
+  username: string;
 };
 
 /**
@@ -7978,6 +8285,391 @@ export type GetAgentStatsResponses = {
 };
 
 export type GetAgentStatsResponse = GetAgentStatsResponses[keyof GetAgentStatsResponses];
+
+export type GetApiAuthSettingsData = {
+  body?: never;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/default/settings/auth";
+};
+
+export type GetApiAuthSettingsErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type GetApiAuthSettingsError = GetApiAuthSettingsErrors[keyof GetApiAuthSettingsErrors];
+
+export type GetApiAuthSettingsResponses = {
+  /**
+   * Successful Response
+   */
+  200: ApiAuthSettingsResponse;
+};
+
+export type GetApiAuthSettingsResponse =
+  GetApiAuthSettingsResponses[keyof GetApiAuthSettingsResponses];
+
+export type UpdateApiAuthSettingsData = {
+  body: ApiAuthSettingsUpdate;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/default/settings/auth";
+};
+
+export type UpdateApiAuthSettingsErrors = {
+  /**
+   * A tenant extension handles authentication, or the server runs several workers
+   */
+  409: unknown;
+  /**
+   * Authorization was turned on with no key to require
+   */
+  422: unknown;
+};
+
+export type UpdateApiAuthSettingsResponses = {
+  /**
+   * Successful Response
+   */
+  200: ApiAuthSettingsResponse;
+};
+
+export type UpdateApiAuthSettingsResponse =
+  UpdateApiAuthSettingsResponses[keyof UpdateApiAuthSettingsResponses];
+
+export type RemovePageLoginAccountData = {
+  body?: never;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/default/settings/auth/admin";
+};
+
+export type RemovePageLoginAccountErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type RemovePageLoginAccountError =
+  RemovePageLoginAccountErrors[keyof RemovePageLoginAccountErrors];
+
+export type RemovePageLoginAccountResponses = {
+  /**
+   * Successful Response
+   */
+  200: ApiAuthSettingsResponse;
+};
+
+export type RemovePageLoginAccountResponse =
+  RemovePageLoginAccountResponses[keyof RemovePageLoginAccountResponses];
+
+export type SetPageLoginAccountData = {
+  body: PageLoginUpdate;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/default/settings/auth/admin";
+};
+
+export type SetPageLoginAccountErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type SetPageLoginAccountError = SetPageLoginAccountErrors[keyof SetPageLoginAccountErrors];
+
+export type SetPageLoginAccountResponses = {
+  /**
+   * Successful Response
+   */
+  200: ApiAuthSettingsResponse;
+};
+
+export type SetPageLoginAccountResponse =
+  SetPageLoginAccountResponses[keyof SetPageLoginAccountResponses];
+
+export type GetAuthStatusData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/default/auth/status";
+};
+
+export type GetAuthStatusResponses = {
+  /**
+   * Successful Response
+   */
+  200: AuthStatusResponse;
+};
+
+export type GetAuthStatusResponse = GetAuthStatusResponses[keyof GetAuthStatusResponses];
+
+export type LoginData = {
+  body: LoginRequest;
+  path?: never;
+  query?: never;
+  url: "/v1/default/auth/login";
+};
+
+export type LoginErrors = {
+  /**
+   * Wrong username or password
+   */
+  401: unknown;
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+  /**
+   * Too many failures
+   */
+  429: unknown;
+};
+
+export type LoginError = LoginErrors[keyof LoginErrors];
+
+export type LoginResponses = {
+  /**
+   * Successful Response
+   */
+  200: LoginResponse;
+};
+
+export type LoginResponse2 = LoginResponses[keyof LoginResponses];
+
+export type GetSessionData = {
+  body?: never;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/default/auth/session";
+};
+
+export type GetSessionErrors = {
+  /**
+   * No valid session
+   */
+  401: unknown;
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type GetSessionError = GetSessionErrors[keyof GetSessionErrors];
+
+export type GetSessionResponses = {
+  /**
+   * Successful Response
+   */
+  200: SessionResponse;
+};
+
+export type GetSessionResponse = GetSessionResponses[keyof GetSessionResponses];
+
+export type GetGlobalLlmSettingsData = {
+  body?: never;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/default/settings/llm";
+};
+
+export type GetGlobalLlmSettingsErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type GetGlobalLlmSettingsError =
+  GetGlobalLlmSettingsErrors[keyof GetGlobalLlmSettingsErrors];
+
+export type GetGlobalLlmSettingsResponses = {
+  /**
+   * Successful Response
+   */
+  200: GlobalLlmSettingsResponse;
+};
+
+export type GetGlobalLlmSettingsResponse =
+  GetGlobalLlmSettingsResponses[keyof GetGlobalLlmSettingsResponses];
+
+export type UpdateGlobalLlmSettingsData = {
+  body: GlobalLlmSettingsUpdate;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/default/settings/llm";
+};
+
+export type UpdateGlobalLlmSettingsErrors = {
+  /**
+   * The model could not be reached with the new settings; nothing was changed
+   */
+  409: unknown;
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type UpdateGlobalLlmSettingsError =
+  UpdateGlobalLlmSettingsErrors[keyof UpdateGlobalLlmSettingsErrors];
+
+export type UpdateGlobalLlmSettingsResponses = {
+  /**
+   * Successful Response
+   */
+  200: GlobalLlmSettingsResponse;
+};
+
+export type UpdateGlobalLlmSettingsResponse =
+  UpdateGlobalLlmSettingsResponses[keyof UpdateGlobalLlmSettingsResponses];
+
+export type ListGlobalLlmModelsData = {
+  body: GlobalLlmSettingsUpdate;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/default/settings/llm/models";
+};
+
+export type ListGlobalLlmModelsErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type ListGlobalLlmModelsError = ListGlobalLlmModelsErrors[keyof ListGlobalLlmModelsErrors];
+
+export type ListGlobalLlmModelsResponses = {
+  /**
+   * Successful Response
+   */
+  200: GlobalLlmModelsResponse;
+};
+
+export type ListGlobalLlmModelsResponse =
+  ListGlobalLlmModelsResponses[keyof ListGlobalLlmModelsResponses];
+
+export type RestartServerData = {
+  body?: never;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/default/settings/restart";
+};
+
+export type RestartServerErrors = {
+  /**
+   * Restarting is not supported in this configuration
+   */
+  409: unknown;
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type RestartServerError = RestartServerErrors[keyof RestartServerErrors];
+
+export type RestartServerResponses = {
+  /**
+   * Successful Response
+   */
+  200: ServerRestartResponse;
+};
+
+export type RestartServerResponse = RestartServerResponses[keyof RestartServerResponses];
+
+export type TestGlobalLlmSettingsData = {
+  body: GlobalLlmSettingsUpdate;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/default/settings/llm/test";
+};
+
+export type TestGlobalLlmSettingsErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type TestGlobalLlmSettingsError =
+  TestGlobalLlmSettingsErrors[keyof TestGlobalLlmSettingsErrors];
+
+export type TestGlobalLlmSettingsResponses = {
+  /**
+   * Successful Response
+   */
+  200: GlobalLlmTestResponse;
+};
+
+export type TestGlobalLlmSettingsResponse =
+  TestGlobalLlmSettingsResponses[keyof TestGlobalLlmSettingsResponses];
 
 export type TestBankLlmData = {
   body?: never;

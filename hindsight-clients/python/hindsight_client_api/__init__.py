@@ -18,6 +18,7 @@ __version__ = "0.0.7"
 
 # import apis into sdk package
 from hindsight_client_api.api.audit_api import AuditApi
+from hindsight_client_api.api.auth_api import AuthApi
 from hindsight_client_api.api.bank_templates_api import BankTemplatesApi
 from hindsight_client_api.api.bank_transfer_api import BankTransferApi
 from hindsight_client_api.api.banks_api import BanksApi
@@ -32,6 +33,7 @@ from hindsight_client_api.api.memory_api import MemoryApi
 from hindsight_client_api.api.mental_models_api import MentalModelsApi
 from hindsight_client_api.api.monitoring_api import MonitoringApi
 from hindsight_client_api.api.operations_api import OperationsApi
+from hindsight_client_api.api.settings_api import SettingsApi
 from hindsight_client_api.api.webhooks_api import WebhooksApi
 
 # import ApiClient
@@ -47,12 +49,15 @@ from hindsight_client_api.exceptions import ApiException
 
 # import models into sdk package
 from hindsight_client_api.models.add_background_request import AddBackgroundRequest
+from hindsight_client_api.models.api_auth_settings_response import ApiAuthSettingsResponse
+from hindsight_client_api.models.api_auth_settings_update import ApiAuthSettingsUpdate
 from hindsight_client_api.models.async_operation_submit_response import AsyncOperationSubmitResponse
 from hindsight_client_api.models.audit_log_entry import AuditLogEntry
 from hindsight_client_api.models.audit_log_list_response import AuditLogListResponse
 from hindsight_client_api.models.audit_log_stats_bucket import AuditLogStatsBucket
 from hindsight_client_api.models.audit_log_stats_response import AuditLogStatsResponse
 from hindsight_client_api.models.audit_log_summary import AuditLogSummary
+from hindsight_client_api.models.auth_status_response import AuthStatusResponse
 from hindsight_client_api.models.background_response import BackgroundResponse
 from hindsight_client_api.models.bank_alias_entry import BankAliasEntry
 from hindsight_client_api.models.bank_aliases_response import BankAliasesResponse
@@ -130,6 +135,10 @@ from hindsight_client_api.models.extraction_chunk import ExtractionChunk
 from hindsight_client_api.models.features_info import FeaturesInfo
 from hindsight_client_api.models.file_content_block import FileContentBlock
 from hindsight_client_api.models.file_retain_response import FileRetainResponse
+from hindsight_client_api.models.global_llm_models_response import GlobalLLMModelsResponse
+from hindsight_client_api.models.global_llm_settings_response import GlobalLLMSettingsResponse
+from hindsight_client_api.models.global_llm_settings_update import GlobalLLMSettingsUpdate
+from hindsight_client_api.models.global_llm_test_response import GlobalLLMTestResponse
 from hindsight_client_api.models.graph_data_response import GraphDataResponse
 from hindsight_client_api.models.http_validation_error import HTTPValidationError
 from hindsight_client_api.models.image_content_block import ImageContentBlock
@@ -156,6 +165,8 @@ from hindsight_client_api.models.list_memory_units_response import ListMemoryUni
 from hindsight_client_api.models.list_tags_response import ListTagsResponse
 from hindsight_client_api.models.liveness_response import LivenessResponse
 from hindsight_client_api.models.llm_operation_health import LlmOperationHealth
+from hindsight_client_api.models.login_request import LoginRequest
+from hindsight_client_api.models.login_response import LoginResponse
 from hindsight_client_api.models.map_field_input import MapFieldInput
 from hindsight_client_api.models.map_field_output import MapFieldOutput
 from hindsight_client_api.models.memories_timeseries_response import MemoriesTimeseriesResponse
@@ -192,6 +203,7 @@ from hindsight_client_api.models.operation_progress import OperationProgress
 from hindsight_client_api.models.operation_response import OperationResponse
 from hindsight_client_api.models.operation_status_response import OperationStatusResponse
 from hindsight_client_api.models.operations_list_response import OperationsListResponse
+from hindsight_client_api.models.page_login_update import PageLoginUpdate
 from hindsight_client_api.models.prompt_block_model import PromptBlockModel
 from hindsight_client_api.models.prompt_message_model import PromptMessageModel
 from hindsight_client_api.models.prompt_preview_request import PromptPreviewRequest
@@ -218,6 +230,8 @@ from hindsight_client_api.models.retain_request import RetainRequest
 from hindsight_client_api.models.retain_response import RetainResponse
 from hindsight_client_api.models.retry_operation_response import RetryOperationResponse
 from hindsight_client_api.models.run_setting_model import RunSettingModel
+from hindsight_client_api.models.server_restart_response import ServerRestartResponse
+from hindsight_client_api.models.session_response import SessionResponse
 from hindsight_client_api.models.set_bank_alias_primary_request import SetBankAliasPrimaryRequest
 from hindsight_client_api.models.source_facts_include_options import SourceFactsIncludeOptions
 from hindsight_client_api.models.strategy_preview import StrategyPreview
