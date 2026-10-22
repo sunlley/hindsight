@@ -2216,7 +2216,8 @@
         "authKeyRequired": "請輸入 API 金鑰(至少 16 個字元,不含空格)以開啟授權。",
         "authRejected": "API 不接受控制台使用的新金鑰,修改已復原。",
         "pageLogin": "儲存頁面登入失敗",
-        "pageLoginOff": "關閉頁面登入失敗"
+        "pageLoginOff": "關閉頁面登入失敗",
+        "rejected_missing_api_key": "未儲存:請填寫此位址對應的 API 金鑰。已儲存的金鑰不會傳往新位址。"
       },
       "apiKey": {
         "invalid": "該 API 金鑰未被接受。",
@@ -2468,7 +2469,9 @@
     "pageLoginMismatch": "兩次輸入的密碼不一致。",
     "pageLoginNote": "只有一個帳號。儲存後會以該帳號直接登入,修改密碼會讓其他人全部登出。請妥善保管密碼,無法在本頁面找回。",
     "pageLoginSaved": "頁面登入已儲存,您已登入。",
-    "pageLoginOffSaved": "頁面登入已關閉"
+    "pageLoginOffSaved": "頁面登入已關閉",
+    "pageLoginApiOpen": "API 本身還沒有設定金鑰,任何能連到 API 的人仍可直接使用它,甚至修改這個帳號。請同時開啟下方的介面授權。",
+    "test_missing_api_key": "需要 API 金鑰:請填寫此位址對應的金鑰(已儲存的金鑰不會傳往新位址)。"
   },
   "apiKeyGate": {
     "title": "需要 API 金鑰",

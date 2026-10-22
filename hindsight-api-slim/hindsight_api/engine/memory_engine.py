@@ -17106,7 +17106,12 @@ class MemoryEngine(MemoryEngineInterface):
         async with self._llm_reload_lock:
             clear_config_cache()
             config = get_config()
-            stack = _build_llm_stack(config, self._llm_overrides)
+            try:
+                stack = _build_llm_stack(config, self._llm_overrides)
+            except ValueError as e:
+                # A provider that needs a key and was given none (a new endpoint never inherits the old key).
+                logger.warning("New LLM settings rejected: %s", e)
+                raise LLMSettingsRejected("missing_api_key") from e
             if not self._skip_llm_verification and stack.llm_config.provider != "none":
                 outcome = await self._probe_llm(stack.llm_config)
                 if not outcome.ok:
@@ -17136,9 +17141,14 @@ class MemoryEngine(MemoryEngineInterface):
         self, *, provider: str, model: str, base_url: str | None, api_key: str | None
     ) -> _LlmProbeOutcome:
         """Probe one LLM connection that is not (yet) the one this engine runs, e.g. a candidate from settings."""
-        return await self._probe_llm(
-            LLMConfig(provider=provider, api_key=api_key or "", base_url=base_url or "", model=model)
-        )
+        if not api_key and requires_api_key(provider):
+            return _LlmProbeOutcome(ok=False, status="missing_api_key", latency_ms=None)
+        llm = LLMConfig(provider=provider, api_key=api_key or "", base_url=base_url or "", model=model)
+        try:
+            return await self._probe_llm(llm)
+        finally:
+            # Built for this one call: release its client (and, for llamacpp, its subprocess) now.
+            await llm.cleanup()
 
     async def check_bank_llm(
         self,

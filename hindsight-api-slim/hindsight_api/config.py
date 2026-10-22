@@ -2584,7 +2584,9 @@ def resolve_llm_connection(saved: "GlobalLLMSettings | None" = None) -> LLMConne
 
     Saved values win. Values the saved settings leave unset are inherited from the environment only
     while the provider stays the same: a model, URL or key written for another provider would be wrong
-    for the new one.
+    for the new one. The environment's key is inherited only while the endpoint is the environment's too:
+    otherwise anyone who may edit the settings could point the URL at a host of their own and have the
+    server send it the key.
     """
     saved = saved if saved is not None else load_global_settings().llm
     env_provider = os.getenv(ENV_LLM_PROVIDER, DEFAULT_LLM_PROVIDER)
@@ -2594,11 +2596,13 @@ def resolve_llm_connection(saved: "GlobalLLMSettings | None" = None) -> LLMConne
     def pick(value: str | None, env_name: str) -> str | None:
         return value or (os.getenv(env_name) or None if inherit_env else None)
 
+    base_url = pick(saved.base_url, ENV_LLM_BASE_URL)
+    same_endpoint = inherit_env and base_url == (os.getenv(ENV_LLM_BASE_URL) or None)
     return LLMConnection(
         provider=provider,
         model=pick(saved.model, ENV_LLM_MODEL) or _get_default_model_for_provider(provider),
-        base_url=pick(saved.base_url, ENV_LLM_BASE_URL),
-        api_key=pick(saved.api_key, ENV_LLM_API_KEY),
+        base_url=base_url,
+        api_key=saved.api_key or ((os.getenv(ENV_LLM_API_KEY) or None) if same_endpoint else None),
     )
 
 

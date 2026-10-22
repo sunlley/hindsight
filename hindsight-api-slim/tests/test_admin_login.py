@@ -82,3 +82,11 @@ def test_a_successful_sign_in_clears_the_failures():
     assert throttle.seconds_until_allowed("a", now=2.0) > 0
     throttle.record_success("a")
     assert throttle.seconds_until_allowed("a", now=2.0) == 0
+
+
+def test_the_throttle_forgets_callers_whose_failures_have_aged_out():
+    throttle = LoginThrottle(max_failures=3, window_seconds=60)
+    for n in range(50):
+        throttle.record_failure(f"caller-{n}", now=0.0)
+    throttle.seconds_until_allowed("someone", now=120.0)
+    assert len(throttle._failures) <= 1

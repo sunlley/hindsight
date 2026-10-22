@@ -3211,7 +3211,7 @@ export type GlobalLlmTestResponse = {
   /**
    * Status
    *
-   * 'connected', 'not_configured', 'auth_failed', 'unreachable' or 'timeout'
+   * 'connected', 'not_configured', 'missing_api_key', 'auth_failed', 'unreachable' or 'timeout'
    */
   status: string;
   /**
@@ -8333,7 +8333,7 @@ export type UpdateApiAuthSettingsData = {
 
 export type UpdateApiAuthSettingsErrors = {
   /**
-   * A tenant extension handles authentication
+   * A tenant extension handles authentication, or the server runs several workers
    */
   409: unknown;
   /**

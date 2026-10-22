@@ -1317,7 +1317,7 @@
             }
           },
           "409": {
-            "description": "A tenant extension handles authentication"
+            "description": "A tenant extension handles authentication, or the server runs several workers"
           },
           "422": {
             "description": "Authorization was turned on with no key to require"
@@ -14119,7 +14119,7 @@
           "status": {
             "type": "string",
             "title": "Status",
-            "description": "'connected', 'not_configured', 'auth_failed', 'unreachable' or 'timeout'"
+            "description": "'connected', 'not_configured', 'missing_api_key', 'auth_failed', 'unreachable' or 'timeout'"
           },
           "latency_ms": {
             "anyOf": [

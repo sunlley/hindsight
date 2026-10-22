@@ -7,13 +7,10 @@ It holds the API key in plain text, like a ``.env`` would, so it is written read
 """
 
 import json
-import logging
 import os
 from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
-
-logger = logging.getLogger(__name__)
 
 ENV_SETTINGS_FILE = "HINDSIGHT_API_SETTINGS_FILE"
 
@@ -54,16 +51,28 @@ def settings_path() -> Path:
     return Path(os.getenv(ENV_SETTINGS_FILE) or Path.home() / ".hindsight" / "settings.json")
 
 
+class GlobalSettingsUnreadable(RuntimeError):
+    """The settings file exists but cannot be read or parsed."""
+
+
 def load_global_settings() -> GlobalSettings:
-    """Read the settings file; a missing or unreadable file means no overrides."""
+    """Read the settings file. A missing file means no overrides; one that cannot be read is an error.
+
+    It used to be ignored with a warning, which is unsafe now that the file holds the API key and the page
+    login: a typo or a file owned by another user after a volume move would start the server with the API
+    open, and the next save would overwrite the stored key and account. So startup fails instead, and the
+    message says which file to fix.
+    """
     path = settings_path()
     try:
         return GlobalSettings.model_validate_json(path.read_text())
     except FileNotFoundError:
         return GlobalSettings()
     except (OSError, ValidationError, json.JSONDecodeError) as e:
-        logger.warning("Ignoring unreadable global settings file %s: %s", path, e)
-        return GlobalSettings()
+        raise GlobalSettingsUnreadable(
+            f"Cannot read the global settings file {path}: {e}. Fix or remove it "
+            f"(it is written from the control plane's Settings page; see {ENV_SETTINGS_FILE})."
+        ) from e
 
 
 def save_global_settings(settings: GlobalSettings) -> None:

@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { localizeApiErrorPayload } from "@/lib/i18n/api-errors";
 import { DATAPLANE_URL, getDataplaneHeaders } from "@/lib/hindsight-client";
-import { endSession, signInWithAccount, startSession } from "@/lib/auth/account-login";
+import {
+  browserAddress,
+  endSession,
+  signInWithAccount,
+  startSession,
+} from "@/lib/auth/account-login";
 import { resetAccountCache } from "@/lib/auth/account";
 
 const ADMIN_URL = `${DATAPLANE_URL}/v1/default/settings/auth/admin`;
@@ -30,7 +35,7 @@ export async function PUT(request: NextRequest) {
     const state = await saved.json();
     resetAccountCache();
 
-    const result = await signInWithAccount(username, password);
+    const result = await signInWithAccount(username, password, browserAddress(request));
     const response = NextResponse.json(state, { status: 200 });
     if (result.ok) startSession(response, request, result.session);
     return response;

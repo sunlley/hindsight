@@ -44,7 +44,10 @@ async def test_reload_swaps_every_client_and_keeps_per_operation_overrides(engin
     old = _clients(engine)
     engine._probe_llm = AsyncMock(return_value=_LlmProbeOutcome(ok=True, status="connected", latency_ms=1.0))
     save_global_settings(
-        GlobalSettings(llm=GlobalLLMSettings(provider="openai", model="model-2", base_url="http://two.example/v1"))
+        # A new endpoint needs its own key: the environment's never follows the URL elsewhere.
+        GlobalSettings(
+            llm=GlobalLLMSettings(provider="openai", model="model-2", base_url="http://two.example/v1", api_key="k2")
+        )
     )
 
     await engine.reload_llm_settings()
@@ -110,3 +113,19 @@ def test_the_config_resolver_adopts_the_rebuilt_global_config(engine, monkeypatc
     resolver.refresh_global_config()
 
     assert resolver._global_config.llm_model == "model-2"
+
+
+@pytest.mark.asyncio
+async def test_a_new_endpoint_without_a_key_is_rejected_not_crashed(engine):
+    old = _clients(engine)
+    save_global_settings(GlobalSettings(llm=GlobalLLMSettings(provider="openai", base_url="http://three.example/v1")))
+    with pytest.raises(LLMSettingsRejected) as rejected:
+        await engine.reload_llm_settings()
+    assert rejected.value.status == "missing_api_key"
+    assert all(n is o for n, o in zip(_clients(engine), old))
+
+
+@pytest.mark.asyncio
+async def test_probing_a_provider_that_needs_a_key_without_one_says_so(engine):
+    outcome = await engine.probe_llm_connection(provider="openai", model="m", base_url="http://x/v1", api_key=None)
+    assert (outcome.ok, outcome.status) == (False, "missing_api_key")

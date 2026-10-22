@@ -13,11 +13,24 @@ interface Session {
 
 export type SignInResult = { ok: true; session: Session } | { ok: false; status: number };
 
-/** Ask the API to check the admin account's credentials. Public on the API side, so no key is sent. */
-export async function signInWithAccount(username: string, password: string): Promise<SignInResult> {
+/** The browser's address, for the API's failed-sign-in throttle: every sign-in reaches the API from this server. */
+export function browserAddress(request: Request): string {
+  return (request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown";
+}
+
+/**
+ * Ask the API to check the admin account's credentials. Public on the API side, so no key is sent. The
+ * browser's address goes along so that the API throttles failures per browser: counted on this server's
+ * address alone, a few wrong passwords from anyone would lock the admin out too.
+ */
+export async function signInWithAccount(
+  username: string,
+  password: string,
+  clientAddress: string
+): Promise<SignInResult> {
   const response = await fetch(`${DATAPLANE_URL}/v1/default/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Forwarded-For": clientAddress },
     body: JSON.stringify({ username, password }),
     cache: "no-store",
   });

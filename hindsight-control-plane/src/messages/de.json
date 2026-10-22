@@ -2216,7 +2216,8 @@
         "authKeyRequired": "Geben Sie einen API-Schlüssel ein (mindestens 16 Zeichen, ohne Leerzeichen), um die Autorisierung einzuschalten.",
         "authRejected": "Die API hat den neuen Schlüssel der Control Plane nicht akzeptiert, die Änderung wurde rückgängig gemacht.",
         "pageLogin": "Seitenanmeldung konnte nicht gespeichert werden",
-        "pageLoginOff": "Seitenanmeldung konnte nicht ausgeschaltet werden"
+        "pageLoginOff": "Seitenanmeldung konnte nicht ausgeschaltet werden",
+        "rejected_missing_api_key": "Nicht gespeichert: Geben Sie den API-Schlüssel für diesen Endpunkt ein. Ein gespeicherter Schlüssel geht nie an eine neue Adresse."
       },
       "apiKey": {
         "invalid": "Dieser API-Schlüssel wurde nicht akzeptiert.",
@@ -2468,7 +2469,9 @@
     "pageLoginMismatch": "Die Passwörter stimmen nicht überein.",
     "pageLoginNote": "Es gibt ein Konto. Beim Speichern sind Sie damit angemeldet, und eine Passwortänderung meldet alle anderen ab. Bewahren Sie das Passwort sicher auf: Es lässt sich auf dieser Seite nicht wiederherstellen.",
     "pageLoginSaved": "Seitenanmeldung gespeichert. Sie sind angemeldet.",
-    "pageLoginOffSaved": "Seitenanmeldung ausgeschaltet"
+    "pageLoginOffSaved": "Seitenanmeldung ausgeschaltet",
+    "pageLoginApiOpen": "Die API selbst hat noch keinen API-Schlüssel: Wer sie erreicht, kann sie direkt nutzen oder dieses Konto ändern. Schalten Sie unten auch die API-Autorisierung ein.",
+    "test_missing_api_key": "API-Schlüssel nötig: Geben Sie den Schlüssel für diesen Endpunkt ein (ein gespeicherter Schlüssel geht nie an eine neue Adresse)."
   },
   "apiKeyGate": {
     "title": "API-Schlüssel erforderlich",

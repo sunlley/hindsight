@@ -893,7 +893,8 @@ paths:
                 $ref: '#/components/schemas/ApiAuthSettingsResponse'
           description: Successful Response
         "409":
-          description: A tenant extension handles authentication
+          description: "A tenant extension handles authentication, or the server runs\
+            \ several workers"
         "422":
           description: Authorization was turned on with no key to require
       summary: Save API authorization settings
@@ -9643,8 +9644,8 @@ components:
           title: Ok
           type: boolean
         status:
-          description: "'connected', 'not_configured', 'auth_failed', 'unreachable'\
-            \ or 'timeout'"
+          description: "'connected', 'not_configured', 'missing_api_key', 'auth_failed',\
+            \ 'unreachable' or 'timeout'"
           title: Status
           type: string
         latency_ms:

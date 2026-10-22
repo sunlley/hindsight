@@ -108,7 +108,9 @@ async def test_a_refused_save_leaves_the_server_on_its_settings(settings_client,
     # Nothing listens on port 1, so the model cannot be reached with this connection.
     with pytest.raises(ApiException) as refused:
         await settings_client.settings.update_global_llm_settings(
-            GlobalLLMSettingsUpdate(provider="openai", model="never-used", base_url="http://127.0.0.1:1/v1")
+            GlobalLLMSettingsUpdate(
+                provider="openai", model="never-used", base_url="http://127.0.0.1:1/v1", api_key="k-never-used"
+            )
         )
     assert refused.value.status == 409
     # Refused connection or the probe giving up on its retries: which one is timing, and both mean "not reachable".

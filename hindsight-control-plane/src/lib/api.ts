@@ -499,7 +499,13 @@ export interface ApiAuthSettings {
 
 export interface GlobalLlmTestResult {
   ok: boolean;
-  status: "connected" | "not_configured" | "auth_failed" | "unreachable" | "timeout";
+  status:
+    | "connected"
+    | "not_configured"
+    | "missing_api_key"
+    | "auth_failed"
+    | "unreachable"
+    | "timeout";
   latency_ms: number | null;
 }
 

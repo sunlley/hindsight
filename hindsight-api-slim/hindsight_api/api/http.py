@@ -3296,7 +3296,9 @@ class GlobalLLMTestResponse(BaseModel):
     """Result of one minimal call against the LLM connection being edited. Status only, never the raw error."""
 
     ok: bool
-    status: str = Field(description="'connected', 'not_configured', 'auth_failed', 'unreachable' or 'timeout'")
+    status: str = Field(
+        description="'connected', 'not_configured', 'missing_api_key', 'auth_failed', 'unreachable' or 'timeout'"
+    )
     latency_ms: float | None = None
 
 
@@ -7053,11 +7055,14 @@ def _register_routes(app: FastAPI):
         )
 
     def _llm_settings_from_request(request: GlobalLLMSettingsUpdate) -> GlobalLLMSettings:
-        """The settings a save would write: an omitted key is kept, but only for the provider it was saved for."""
+        """The settings a save would write. An omitted key is kept only for the provider and endpoint it was
+        saved for: a request that changes the URL must send the key for it, or the saved key would go to a
+        host of the caller's choosing."""
         from hindsight_api.global_settings import load_global_settings
 
         saved = load_global_settings().llm
-        kept_key = saved.api_key if saved.provider == request.provider else None
+        same_endpoint = saved.provider == request.provider and saved.base_url == request.base_url
+        kept_key = saved.api_key if same_endpoint else None
         return GlobalLLMSettings(
             provider=request.provider,
             model=request.model,
@@ -7090,7 +7095,7 @@ def _register_routes(app: FastAPI):
         operation_id="update_api_auth_settings",
         tags=["Settings"],
         responses={
-            409: {"description": "A tenant extension handles authentication"},
+            409: {"description": "A tenant extension handles authentication, or the server runs several workers"},
             422: {"description": "Authorization was turned on with no key to require"},
         },
     )
@@ -7104,6 +7109,12 @@ def _register_routes(app: FastAPI):
         extension = app.state.memory.tenant_extension
         if not isinstance(extension, DefaultTenantExtension):
             raise HTTPException(status_code=409, detail="A tenant extension handles authentication.")
+        if get_config().workers > 1:
+            # Only the worker that got the request would start checking the key; the others would keep
+            # letting everyone in until a restart. Refused rather than half applied.
+            raise HTTPException(
+                status_code=409, detail="API authorization cannot be changed here with more than one worker."
+            )
         key = (request.api_key or extension.api_key) if request.enabled else None
         if request.enabled and key is None:
             raise HTTPException(status_code=422, detail="An API key is required to turn authorization on.")
@@ -7203,7 +7214,13 @@ def _register_routes(app: FastAPI):
         from hindsight_api.extensions.builtin.tenant import DefaultTenantExtension
         from hindsight_api.global_settings import load_global_settings
 
-        caller = http_request.client.host if http_request.client else "unknown"
+        # Sign-ins arrive through the control plane, so the peer address is the control plane's for everyone;
+        # throttling on it alone let five wrong passwords from anyone lock the admin out. The control plane
+        # names the browser's address, and the throttle counts per (peer, browser). A caller talking to the
+        # API directly can vary that header to get more attempts, but each one still costs a scrypt check.
+        peer = http_request.client.host if http_request.client else "unknown"
+        browser = (http_request.headers.get("x-forwarded-for") or "").split(",")[0].strip()[:64]
+        caller = f"{peer}|{browser}"
         wait = login_throttle.seconds_until_allowed(caller)
         if wait > 0:
             raise HTTPException(
@@ -7300,8 +7317,10 @@ def _register_routes(app: FastAPI):
         try:
             await app.state.memory.reload_llm_settings()
         except Exception as e:
-            # Put the file back so a restart cannot come up on settings that were refused.
-            save_global_settings(previous)
+            # Put the LLM section back so a restart cannot come up on settings that were refused. Only that
+            # section: an auth change saved while the probe ran must not be undone with it.
+            current = load_global_settings()
+            save_global_settings(current.model_copy(update={"llm": previous.llm}))
             clear_config_cache()
             if isinstance(e, LLMSettingsRejected):
                 raise HTTPException(status_code=409, detail={"status": e.status})

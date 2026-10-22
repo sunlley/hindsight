@@ -78,6 +78,11 @@ export function PageLoginSettingsSection() {
         )}
       </div>
       <p className="mb-3 text-xs text-muted-foreground">{t("pageLoginDescription")}</p>
+      {!state.enabled && !state.managed_by_extension && (
+        // The page login only guards this page: with the API open, anyone who reaches the API can still use
+        // it directly, or replace the account through the settings endpoints.
+        <p className="mb-3 text-xs text-amber-600 dark:text-amber-400">{t("pageLoginApiOpen")}</p>
+      )}
       <p className="text-sm">
         {state.admin_username
           ? t("pageLoginOn", { username: state.admin_username })

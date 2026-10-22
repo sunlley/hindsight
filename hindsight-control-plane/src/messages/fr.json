@@ -2216,7 +2216,8 @@
         "authKeyRequired": "Saisissez une clé d'API (au moins 16 caractères, sans espace) pour activer l'autorisation.",
         "authRejected": "L'API n'a pas accepté la nouvelle clé du plan de contrôle, la modification a été annulée.",
         "pageLogin": "Échec de l'enregistrement de la connexion à la page",
-        "pageLoginOff": "Échec de la désactivation de la connexion à la page"
+        "pageLoginOff": "Échec de la désactivation de la connexion à la page",
+        "rejected_missing_api_key": "Non enregistré : saisissez la clé d'API de ce point d'accès. Une clé enregistrée n'est jamais envoyée à une nouvelle adresse."
       },
       "apiKey": {
         "invalid": "Cette clé d'API n'a pas été acceptée.",
@@ -2468,7 +2469,9 @@
     "pageLoginMismatch": "Les mots de passe ne correspondent pas.",
     "pageLoginNote": "Il n'y a qu'un seul compte. L'enregistrer vous connecte avec ce compte, et changer le mot de passe déconnecte tous les autres. Gardez le mot de passe en lieu sûr : il est impossible de le récupérer depuis cette page.",
     "pageLoginSaved": "Connexion à la page enregistrée. Vous êtes connecté.",
-    "pageLoginOffSaved": "Connexion à la page désactivée"
+    "pageLoginOffSaved": "Connexion à la page désactivée",
+    "pageLoginApiOpen": "L'API elle-même n'a pas encore de clé : quiconque l'atteint peut l'utiliser directement ou modifier ce compte. Activez aussi l'autorisation de l'API ci-dessous.",
+    "test_missing_api_key": "Clé d'API requise : saisissez la clé de ce point d'accès (une clé enregistrée n'est jamais envoyée à une nouvelle adresse)."
   },
   "apiKeyGate": {
     "title": "Clé d'API requise",

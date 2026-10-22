@@ -2216,7 +2216,8 @@
         "authKeyRequired": "Informe uma chave de API (pelo menos 16 caracteres, sem espaços) para ativar a autorização.",
         "authRejected": "A API não aceitou a nova chave do painel de controle, então a alteração foi desfeita.",
         "pageLogin": "Falha ao salvar o login da página",
-        "pageLoginOff": "Falha ao desativar o login da página"
+        "pageLoginOff": "Falha ao desativar o login da página",
+        "rejected_missing_api_key": "Não salvo: informe a chave de API deste endpoint. Uma chave salva nunca é enviada a um novo endereço."
       },
       "apiKey": {
         "invalid": "Essa chave de API não foi aceita.",
@@ -2468,7 +2469,9 @@
     "pageLoginMismatch": "As senhas não coincidem.",
     "pageLoginNote": "Há uma única conta. Ao salvar, você entra com ela, e trocar a senha desconecta todos os outros. Guarde bem a senha: ela não pode ser recuperada por esta página.",
     "pageLoginSaved": "Login da página salvo. Você está conectado.",
-    "pageLoginOffSaved": "Login da página desativado"
+    "pageLoginOffSaved": "Login da página desativado",
+    "pageLoginApiOpen": "A API ainda não tem chave, então quem a alcança pode usá-la diretamente ou alterar esta conta. Ative também a autorização da API abaixo.",
+    "test_missing_api_key": "Chave de API necessária: informe a chave deste endpoint (uma chave salva nunca é enviada a um novo endereço)."
   },
   "apiKeyGate": {
     "title": "Chave de API necessária",

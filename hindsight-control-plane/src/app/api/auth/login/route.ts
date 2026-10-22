@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { localizeApiErrorPayload } from "@/lib/i18n/api-errors";
 import { isLoginRequired } from "@/lib/auth/account";
-import { signInWithAccount, startSession } from "@/lib/auth/account-login";
+import { browserAddress, signInWithAccount, startSession } from "@/lib/auth/account-login";
 
 import {
   ACCESS_KEY_COOKIE,
@@ -23,7 +23,7 @@ async function accountLogin(request: NextRequest) {
     return failure(401, "Wrong username or password", "api.errors.auth.invalidCredentials");
   }
   try {
-    const result = await signInWithAccount(username, password);
+    const result = await signInWithAccount(username, password, browserAddress(request));
     if (!result.ok) {
       return result.status === 429
         ? failure(429, "Too many attempts", "api.errors.auth.tooManyAttempts")

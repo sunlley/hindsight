@@ -126,7 +126,8 @@ class LoginThrottle:
             self._failures.pop(caller, None)
 
     def _prune(self, caller: str, now: float) -> deque[float]:
-        recent = self._failures[caller]
-        while recent and recent[0] + self._window <= now:
-            recent.popleft()
-        return recent
+        # Every caller ever seen would stay in the map otherwise; a caller whose failures have all aged out is
+        # dropped, so the map holds only the last window's failures.
+        for stale in [c for c, times in self._failures.items() if not times or times[-1] + self._window <= now]:
+            del self._failures[stale]
+        return self._failures[caller]

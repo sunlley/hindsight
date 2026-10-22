@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { localizeApiErrorPayload } from "@/lib/i18n/api-errors";
 import { DATAPLANE_URL, getDataplaneHeaders } from "@/lib/hindsight-client";
 
-const REFUSAL_STATUSES = ["auth_failed", "unreachable", "timeout"];
+const REFUSAL_STATUSES = ["auth_failed", "unreachable", "timeout", "missing_api_key"];
 
 /** A save the server refused (409) says why the model could not be reached; pick the matching message. */
 function refusalKey(status: number, body: string): string | null {

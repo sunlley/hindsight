@@ -2216,7 +2216,8 @@
         "authKeyRequired": "请输入 API 密钥(至少 16 个字符,不含空格)以开启授权。",
         "authRejected": "API 不接受控制台使用的新密钥,修改已撤销。",
         "pageLogin": "保存页面登录失败",
-        "pageLoginOff": "关闭页面登录失败"
+        "pageLoginOff": "关闭页面登录失败",
+        "rejected_missing_api_key": "未保存:请填写这个地址对应的 API 密钥。已保存的密钥不会发往新地址。"
       },
       "apiKey": {
         "invalid": "该 API 密钥未被接受。",
@@ -2468,7 +2469,9 @@
     "pageLoginMismatch": "两次输入的密码不一致。",
     "pageLoginNote": "只有一个账号。保存后会以该账号直接登录,修改密码会让其他人全部退出登录。请妥善保管密码,无法在本页面找回。",
     "pageLoginSaved": "页面登录已保存,您已登录。",
-    "pageLoginOffSaved": "页面登录已关闭"
+    "pageLoginOffSaved": "页面登录已关闭",
+    "pageLoginApiOpen": "API 本身还没有设置密钥,任何能访问 API 的人仍可直接使用它,甚至修改这个账号。请同时开启下方的接口授权。",
+    "test_missing_api_key": "需要 API 密钥:请填写这个地址对应的密钥(已保存的密钥不会发往新地址)。"
   },
   "apiKeyGate": {
     "title": "需要 API 密钥",

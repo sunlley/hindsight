@@ -2216,7 +2216,8 @@
         "authKeyRequired": "권한 부여를 켜려면 API 키(16자 이상, 공백 없음)를 입력하세요.",
         "authRejected": "API가 컨트롤 플레인의 새 키를 받아들이지 않아 변경을 되돌렸습니다.",
         "pageLogin": "페이지 로그인을 저장하지 못했습니다",
-        "pageLoginOff": "페이지 로그인을 끄지 못했습니다"
+        "pageLoginOff": "페이지 로그인을 끄지 못했습니다",
+        "rejected_missing_api_key": "저장되지 않음: 이 엔드포인트의 API 키를 입력하세요. 저장된 키는 새 주소로 보내지 않습니다."
       },
       "apiKey": {
         "invalid": "해당 API 키가 거부되었습니다.",
@@ -2468,7 +2469,9 @@
     "pageLoginMismatch": "비밀번호가 일치하지 않습니다.",
     "pageLoginNote": "계정은 하나입니다. 저장하면 해당 계정으로 로그인된 상태가 되고, 비밀번호를 바꾸면 다른 모든 사용자가 로그아웃됩니다. 비밀번호를 안전하게 보관하세요. 이 페이지에서는 복구할 수 없습니다.",
     "pageLoginSaved": "페이지 로그인이 저장되었습니다. 로그인되었습니다.",
-    "pageLoginOffSaved": "페이지 로그인이 꺼졌습니다"
+    "pageLoginOffSaved": "페이지 로그인이 꺼졌습니다",
+    "pageLoginApiOpen": "API 자체에 아직 API 키가 없어, API에 접근할 수 있는 누구나 직접 사용하거나 이 계정을 바꿀 수 있습니다. 아래 API 권한 부여도 켜세요.",
+    "test_missing_api_key": "API 키 필요: 이 엔드포인트의 키를 입력하세요(저장된 키는 새 주소로 보내지 않습니다)."
   },
   "apiKeyGate": {
     "title": "API 키 필요",

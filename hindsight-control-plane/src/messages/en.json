@@ -2216,7 +2216,8 @@
         "authKeyRequired": "Enter an API key (at least 16 characters, no spaces) to turn authorization on.",
         "authRejected": "The API did not accept the new key from the control plane, so the change was undone.",
         "pageLogin": "Failed to save the page login",
-        "pageLoginOff": "Failed to turn off the page login"
+        "pageLoginOff": "Failed to turn off the page login",
+        "rejected_missing_api_key": "Not saved: enter the API key for this endpoint. A saved key is never sent to a new address."
       },
       "apiKey": {
         "invalid": "That API key was not accepted.",
@@ -2468,7 +2469,9 @@
     "pageLoginMismatch": "The passwords do not match.",
     "pageLoginNote": "There is one account. Saving signs you in as it, and changing the password signs everyone else out. Keep the password safe: it cannot be recovered from this page.",
     "pageLoginSaved": "Page login saved. You are signed in.",
-    "pageLoginOffSaved": "Page login turned off"
+    "pageLoginOffSaved": "Page login turned off",
+    "pageLoginApiOpen": "The API itself has no API key yet, so anyone who can reach it can still use it directly, or change this account. Turn on API authorization below too.",
+    "test_missing_api_key": "API key needed: enter the key for this endpoint (a saved key is not sent to a new address)."
   },
   "apiKeyGate": {
     "title": "API key required",

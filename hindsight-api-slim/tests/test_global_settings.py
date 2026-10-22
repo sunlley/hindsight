@@ -18,6 +18,7 @@ from hindsight_api.engine.memory_engine import LLMSettingsRejected, _LlmProbeOut
 from hindsight_api.extensions import AuthenticationError
 from hindsight_api.extensions.builtin.tenant import DefaultTenantExtension
 from hindsight_api.global_settings import (
+    GlobalSettingsUnreadable,
     GlobalLLMSettings,
     GlobalSettings,
     load_global_settings,
@@ -41,10 +42,17 @@ def _settings_file(tmp_path, monkeypatch):
     clear_config_cache()
 
 
-def test_missing_or_corrupt_file_means_no_overrides(tmp_path):
+def test_a_missing_file_means_no_overrides():
     assert load_global_settings() == GlobalSettings()
+
+
+def test_an_unreadable_file_stops_the_server_instead_of_opening_the_api(tmp_path):
+    """It holds the API key and the page login: reading it as empty would start the server open."""
     (tmp_path / "settings.json").write_text("{not json")
-    assert load_global_settings() == GlobalSettings()
+    with pytest.raises(GlobalSettingsUnreadable, match="settings.json"):
+        load_global_settings()
+    with pytest.raises(GlobalSettingsUnreadable):
+        HindsightConfig.from_env()
 
 
 def test_settings_file_is_owner_only():
@@ -72,6 +80,13 @@ def test_same_provider_inherits_unset_values_from_environment():
     config = HindsightConfig.from_env()
     assert config.llm_model == "saved-model"
     assert (config.llm_base_url, config.llm_api_key) == ("http://env.example/v1", "env-key-0000")
+
+
+def test_the_environment_key_never_follows_a_saved_url_to_another_host():
+    save_global_settings(GlobalSettings(llm=GlobalLLMSettings(provider="openai", base_url="https://elsewhere/v1")))
+    config = HindsightConfig.from_env()
+    assert config.llm_base_url == "https://elsewhere/v1"
+    assert config.llm_api_key is None
 
 
 def test_other_provider_does_not_inherit_environment_values():
@@ -481,3 +496,76 @@ async def test_saving_the_api_key_or_the_llm_keeps_the_page_login_account(api_cl
     saved = load_global_settings().auth
     assert saved.admin.username == "admin"
     assert saved.session_secret == secret
+
+
+@pytest.mark.asyncio
+async def test_a_test_or_model_list_aimed_at_another_host_does_not_carry_the_saved_or_env_key(api_client):
+    """Whoever may edit the settings must not be able to make the server send its key to their own host."""
+    await api_client.put(URL, json={"provider": "openai", "model": "m", "api_key": "sk-saved-key-12345"})
+
+    await api_client.post(f"{URL}/test", json={"provider": "openai", "base_url": "https://attacker.example/v1"})
+    sent = api_client.memory.probe_llm_connection.await_args.kwargs
+    assert sent["base_url"] == "https://attacker.example/v1"
+    assert sent["api_key"] is None
+
+    # Same endpoint as saved: the saved key is used, so "Test" works without retyping it.
+    await api_client.post(f"{URL}/test", json={"provider": "openai"})
+    assert api_client.memory.probe_llm_connection.await_args.kwargs["api_key"] == "sk-saved-key-12345"
+
+
+@pytest.mark.asyncio
+async def test_saving_a_new_url_without_a_key_drops_the_saved_key(api_client):
+    await api_client.put(URL, json={"provider": "openai", "api_key": "sk-saved-key-12345"})
+    await api_client.put(URL, json={"provider": "openai", "base_url": "https://elsewhere.example/v1"})
+    assert load_global_settings().llm.api_key is None
+
+
+@pytest.mark.asyncio
+async def test_the_api_key_cannot_be_turned_on_for_only_one_of_several_workers(api_client, monkeypatch):
+    monkeypatch.setenv("HINDSIGHT_API_WORKERS", "2")
+    clear_config_cache()
+    assert (await api_client.put(AUTH_URL, json={"enabled": True, "api_key": API_KEY})).status_code == 409
+    assert api_client.memory.tenant_extension.api_key is None
+
+
+@pytest.mark.asyncio
+async def test_failed_sign_ins_from_one_browser_do_not_lock_out_another(api_client):
+    """Every sign-in reaches the API from the control plane; the throttle must count per browser."""
+    await api_client.put(ADMIN_URL, json=ADMIN)
+    for _ in range(5):
+        await api_client.post(
+            "/v1/default/auth/login",
+            json={"username": "admin", "password": "guess"},
+            headers={"X-Forwarded-For": "203.0.113.9"},
+        )
+    blocked = await api_client.post("/v1/default/auth/login", json=ADMIN, headers={"X-Forwarded-For": "203.0.113.9"})
+    admin = await api_client.post("/v1/default/auth/login", json=ADMIN, headers={"X-Forwarded-For": "198.51.100.7"})
+    assert (blocked.status_code, admin.status_code) == (429, 200)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_llm_save_does_not_undo_an_auth_change_made_meanwhile(api_client):
+    async def auth_changes_then_probe_fails():
+        save_global_settings(
+            load_global_settings().model_copy(
+                update={"auth": load_global_settings().auth.model_copy(update={"api_key": API_KEY})}
+            )
+        )
+        raise LLMSettingsRejected("unreachable")
+
+    api_client.memory.reload_llm_settings.side_effect = auth_changes_then_probe_fails
+    assert (await api_client.put(URL, json={"provider": "anthropic"})).status_code == 409
+    saved = load_global_settings()
+    assert saved.auth.api_key == API_KEY
+    assert saved.llm.provider is None
+
+
+@pytest.mark.asyncio
+async def test_saving_a_new_endpoint_without_its_key_is_refused_clearly(api_client):
+    async def reload_refuses():
+        raise LLMSettingsRejected("missing_api_key")
+
+    api_client.memory.reload_llm_settings.side_effect = reload_refuses
+    response = await api_client.put(URL, json={"provider": "openai", "base_url": "https://new.example/v1"})
+    assert response.status_code == 409
+    assert response.json()["detail"] == {"status": "missing_api_key"}

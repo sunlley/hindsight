@@ -2216,7 +2216,8 @@
         "authKeyRequired": "Introduce una clave de API (al menos 16 caracteres, sin espacios) para activar la autorización.",
         "authRejected": "La API no aceptó la nueva clave del panel de control, así que se deshizo el cambio.",
         "pageLogin": "No se pudo guardar el inicio de sesión de la página",
-        "pageLoginOff": "No se pudo desactivar el inicio de sesión de la página"
+        "pageLoginOff": "No se pudo desactivar el inicio de sesión de la página",
+        "rejected_missing_api_key": "No guardado: introduce la clave de API de este endpoint. Una clave guardada nunca se envía a una dirección nueva."
       },
       "apiKey": {
         "invalid": "Esa clave de API no fue aceptada.",
@@ -2468,7 +2469,9 @@
     "pageLoginMismatch": "Las contraseñas no coinciden.",
     "pageLoginNote": "Hay una sola cuenta. Al guardar, inicias sesión con ella, y cambiar la contraseña cierra la sesión de todos los demás. Guarda bien la contraseña: no se puede recuperar desde esta página.",
     "pageLoginSaved": "Inicio de sesión de la página guardado. Has iniciado sesión.",
-    "pageLoginOffSaved": "Inicio de sesión de la página desactivado"
+    "pageLoginOffSaved": "Inicio de sesión de la página desactivado",
+    "pageLoginApiOpen": "La API todavía no tiene clave, así que quien llegue a ella puede usarla directamente o cambiar esta cuenta. Activa también la autorización de la API más abajo.",
+    "test_missing_api_key": "Falta la clave de API: introduce la clave de este endpoint (una clave guardada nunca se envía a una dirección nueva)."
   },
   "apiKeyGate": {
     "title": "Se necesita la clave de API",

@@ -27,7 +27,7 @@ class GlobalLLMTestResponse(BaseModel):
     Result of one minimal call against the LLM connection being edited. Status only, never the raw error.
     """ # noqa: E501
     ok: StrictBool
-    status: StrictStr = Field(description="'connected', 'not_configured', 'auth_failed', 'unreachable' or 'timeout'")
+    status: StrictStr = Field(description="'connected', 'not_configured', 'missing_api_key', 'auth_failed', 'unreachable' or 'timeout'")
     latency_ms: Optional[Union[StrictFloat, StrictInt]] = None
     __properties: ClassVar[List[str]] = ["ok", "status", "latency_ms"]
 

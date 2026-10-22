@@ -22,7 +22,7 @@ var _ MappedNullable = &GlobalLLMTestResponse{}
 // GlobalLLMTestResponse Result of one minimal call against the LLM connection being edited. Status only, never the raw error.
 type GlobalLLMTestResponse struct {
 	Ok bool `json:"ok"`
-	// 'connected', 'not_configured', 'auth_failed', 'unreachable' or 'timeout'
+	// 'connected', 'not_configured', 'missing_api_key', 'auth_failed', 'unreachable' or 'timeout'
 	Status string `json:"status"`
 	LatencyMs NullableFloat32 `json:"latency_ms,omitempty"`
 }
